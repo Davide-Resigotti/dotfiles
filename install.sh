@@ -25,6 +25,17 @@ for img in wallpapers/Pictures/Wallpapers/*.jpg; do
     cp -n "$img" "$HOME/Pictures/Wallpapers/"
 done
 
+# keyd config lives in root-owned /etc/keyd, so it's copied (needs sudo).
+if sudo -v; then
+    sudo install -D -m 644 keyd/etc/keyd/default.conf /etc/keyd/default.conf
+    sudo install -D -m 644 keyd/etc/keyd/mx-mechanical-mini.conf /etc/keyd/mx-mechanical-mini.conf
+    sudo systemctl try-restart keyd.service
+    echo "keyd config installed."
+else
+    echo "keyd config NOT installed (sudo unavailable)." >&2
+    echo "  Re-run as root: install -D -m 644 keyd/etc/keyd/*.conf /etc/keyd/ && systemctl restart keyd" >&2
+fi
+
 cat <<'EOF'
 
 Done.

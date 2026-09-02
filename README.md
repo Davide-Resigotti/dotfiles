@@ -4,6 +4,8 @@ My Niri-on-Fedora setup, managed with [GNU Stow](https://www.gnu.org/software/st
 Each top-level directory is a Stow *package* mirroring `$HOME`: running `stow niri`
 symlinks `~/.config/niri` to `niri/.config/niri` inside this repo. You edit the real
 files as usual; every change is a git change. No copying, no sync step.
+(`keyd` and `wallpapers` are the exceptions: they're copied, not symlinked — `keyd`
+targets root-owned `/etc/keyd`, so `install.sh` needs sudo for it.)
 
 ## Packages
 
@@ -24,6 +26,7 @@ files as usual; every change is a git change. No copying, no sync step.
 | `autostart`  | `~/.config/autostart` | XWayland video bridge |
 | `shell`      | `~/.bashrc`, `~/.bash_profile`, `~/.profile`, `~/.gitconfig` | trimmed, machine-agnostic |
 | `wallpapers` | copied to `~/Pictures/Wallpapers` | JPEGs used by `wallpaper-cycle` |
+| `keyd`      | copied to `/etc/keyd` (needs root) | keyboard remap: capslock->ctrl/esc; Logitech MX Mechanical Mini F4/F5 -> screen brightness |
 
 ## Restore on a new machine (Fedora)
 
