@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Theme
+Comment=Toggle between dark and light mode
+Exec=/usr/bin/darkman toggle
+Terminal=false
+Type=Application
+Icon=weather-clear-night
+Categories=Settings;
+Keywords=dark;light;theme;night;

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Apply a color scheme and schedule the next transition.
-# Called by `at` jobs — one-shot, zero idle cost.
+# Apply a color scheme.
+# Called by darkman at sunrise/sundown transitions (and by our early-dark at
+# job, which funnels back through `darkman set dark`).
 # Usage: apply-theme dark | apply-theme light
 
 THEME="${1:?usage: apply-theme dark|light}"
-SCRIPTS_DIR="$HOME/.config/niri/scripts"
 LOG="$HOME/.cache/theme-scheduler.log"
 
 log() { printf '[%(%T)T] %s\n' -1 "$*" >>"$LOG"; }
@@ -19,6 +19,15 @@ fi
 # Set color-scheme via gsettings (GTK apps pick this up)
 dconf write /org/gnome/desktop/interface/color-scheme "\"prefer-$THEME\""
 
+# Reflect the mode in the launcher icon (sun by day, moon at night).
+# The .desktop file lives in dotfiles; edit the real file so stow's symlink
+# is not replaced by sed -i.
+DESKTOP_FILE="$HOME/.local/share/applications/toggle-theme.desktop"
+if [[ -e "$DESKTOP_FILE" ]]; then
+    if [[ "$THEME" == "dark" ]]; then ICON="weather-clear-night"; else ICON="weather-clear"; fi
+    sed -i "s/^Icon=.*/Icon=$ICON/" "$(readlink -f "$DESKTOP_FILE")"
+fi
+
 # Smooth screen crossfade (niri v0.1.6+)
 if command -v niri &>/dev/null; then
     niri msg action do-screen-transition &
@@ -26,6 +35,3 @@ if command -v niri &>/dev/null; then
 fi
 
 log "applied: $THEME"
-
-# Schedule the next transition
-"$SCRIPTS_DIR/schedule-theme-transitions" "$THEME"

@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""Arm the "go dark before sunset" at(1) job.
+
+Darkman is the transition authority: it flips to light at sunrise and back to
+dark at sundown. We only make sure that one extra `darkman set dark` job is
+queued for (sunset - EARLY_MIN), so the screen turns dark a full hour before
+the sun actually sets.
+
+This is re-run every time the mode becomes light (from darkman's own hook) and
+once at login, so the job can never go missing for long.
+
+Usage: schedule-early-dark
+"""
+
+import os
+import re
+import subprocess
+import sys
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+from astral import LocationInfo
+from astral.sun import sun
+
+TZ = ZoneInfo("Europe/Rome")
+LOC = LocationInfo("Milan", "Italy", "Europe/Rome", 45.46, 9.19)
+EARLY_MIN = 60
+LOG = os.path.expanduser("~/.cache/theme-scheduler.log")
+DARKMAN = "/usr/bin/darkman"
+
+
+def log(msg: str) -> None:
+    ts = datetime.now(TZ).strftime("%H:%M:%S")
+    with open(LOG, "a") as f:
+        f.write(f"[{ts}] {msg}\n")
+
+
+def purge_old_jobs() -> None:
+    """Remove any existing at jobs that invoke `darkman set dark`."""
+    try:
+        result = subprocess.run(["atq"], capture_output=True, text=True)
+        for line in result.stdout.strip().splitlines():
+            job_id = line.split()[0]
+            check = subprocess.run(
+                ["at", "-c", job_id], capture_output=True, text=True
+            )
+            if "darkman set dark" in check.stdout:
+                subprocess.run(["atrm", job_id], capture_output=True)
+                log(f"removed stale at job {job_id}")
+    except Exception:
+        pass
+
+
+def main() -> None:
+    now = datetime.now(TZ)
+
+    # Find the next sunset (walking forward a few days skips polar edge cases).
+    when = None
+    for day_offset in range(4):
+        day = now.date() + timedelta(days=day_offset)
+        try:
+            times = sun(LOC.observer, date=day, tzinfo=TZ)
+        except ValueError:
+            continue
+        candidate = times["sunset"] - timedelta(minutes=EARLY_MIN)
+        if candidate > now:
+            when = candidate
+            break
+
+    if when is None:
+        log("schedule-early-dark: no upcoming sunset found")
+        sys.exit(1)
+
+    purge_old_jobs()
+
+    time_str = when.strftime("%H:%M %Y-%m-%d")
+    proc = subprocess.run(
+        ["at", time_str],
+        input=f"{DARKMAN} set dark",
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        log(f"schedule-early-dark: at failed: {proc.stderr.strip()}")
+        sys.exit(1)
+
+    log(f"armed early-dark at {time_str} (sunset - {EARLY_MIN} min), job {proc.stdout.strip()}")
+
+
+if __name__ == "__main__":
+    main()

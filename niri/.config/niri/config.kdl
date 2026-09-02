@@ -62,13 +62,13 @@ input {
 
 // NOTE: monitor layout below is machine-specific. Names/modes come from
 // `niri msg outputs`. Uncomment/adapt on a new machine.
-// output "Xiaomi Corporation Mi Monitor 0000000000000" {
-//     mode "3440x1440@99.992"
-//     scale 0.90
-//     variable-refresh-rate
-//     focus-at-startup
-//     position x=2016 y=0 //x=2016 because of 3024/1.5=2016 according to the specs of the main monitor
-// }
+ output "Xiaomi Corporation Mi Monitor 0000000000000" {
+     mode "3440x1440@99.992"
+     scale 0.90
+     variable-refresh-rate
+     focus-at-startup
+     position x=2016 y=0 //x=2016 because of 3024/1.5=2016 according to the specs of the main monitor
+ }
 
 output "eDP-1" {
     mode "3024x1890@60.000"
@@ -242,7 +242,7 @@ layout {
 // See the binds section below for more spawn examples.
 
 spawn-sh-at-startup "sleep 1 && $HOME/.config/niri/scripts/wallpaper-cycle daemon &"
-spawn-sh-at-startup "sleep 1 && $HOME/.config/niri/scripts/schedule-theme-transitions &"
+spawn-sh-at-startup "sleep 1 && $HOME/.config/niri/scripts/schedule-early-dark &"
 spawn-at-startup "niri-copy-paste daemon"
 
 // Waybar is managed by the systemd user service (waybar.service).
@@ -381,7 +381,7 @@ binds {
     Mod+B hotkey-overlay-title="Open Firefox" { spawn "firefox"; }
     Mod+D hotkey-overlay-title="Run an Application: fuzzel" { spawn "fuzzel"; }
 
-    Super+Space hotkey-overlay-title="Run an Application: wofi" { spawn "wofi" "--show" "drun"; }
+    Super+Space hotkey-overlay-title="Run an Application: fuzzel" { spawn "fuzzel"; }
     // Binds below were carried over from another machine (/home/davide utilities).
     // Commented out here because the scripts don't exist in this repo. Re-enable + install as needed.
     // Super+E allow-when-locked=true hotkey-overlay-title="renCal" { spawn-sh "$HOME/.local/bin/niri-toggle rencal rencal"; }

@@ -9,7 +9,7 @@ files as usual; every change is a git change. No copying, no sync step.
 
 | Package      | Symlinks to `$HOME` | Contents |
 |--------------|---------------------|----------|
-| `niri`       | `~/.config/niri`    | `config.kdl` (portable `$HOME` spawn paths), `scripts/` (theme scheduling, wallpaper cycling) |
+| `niri`       | `~/.config/niri`    | `config.kdl` (portable `$HOME` spawn paths), `scripts/` (theme apply + early-dark arming, wallpaper cycling) |
 | `waybar`     | `~/.config/waybar`  | `config.jsonc`, `style.css` |
 | `mako`       | `~/.config/mako`    | notification daemon |
 | `fuzzel`     | `~/.config/fuzzel`  | launcher used by the clipboard picker |
@@ -17,7 +17,9 @@ files as usual; every change is a git change. No copying, no sync step.
 | `gtk-3.0`, `gtk-4.0` | `~/.config/gtk-{3,4}.0` | GTK theming + window-button assets (generated `*dank-colors.css` excluded) |
 | `xsettingsd` | `~/.config/xsettingsd` | GTK settings bridge |
 | `fontconfig` | `~/.config/fontconfig` | font aliases (Nerd Font -> Cascadia Code NF) |
-| `systemd`    | `~/.config/systemd/user` | `theme-scheduler.{service,timer}` |
+| `darkman`    | `~/.config/darkman`, `~/.local/share/darkman` | darkman config (fixed Milan coords) + transition hook |
+| `xdg-desktop-portal` | `~/.config/xdg-desktop-portal` | prefer `darkman` as the Settings portal |
+| `theme`     | `~/.local/share/applications/toggle-theme.desktop` | "Theme" launcher entry: `darkman toggle`, icon sun/moon follows current mode |
 | `autostart`  | `~/.config/autostart` | XWayland video bridge |
 | `shell`      | `~/.bashrc`, `~/.bash_profile`, `~/.profile`, `~/.gitconfig` | trimmed, machine-agnostic |
 | `wallpapers` | copied to `~/Pictures/Wallpapers` | JPEGs used by `wallpaper-cycle` |
@@ -27,7 +29,7 @@ files as usual; every change is a git change. No copying, no sync step.
 ```sh
 # Packages
 sudo dnf install niri waybar mako fuzzel swaybg wtype wl-clipboard \
-  at xsettingsd fontconfig solaar ghostty python3-astral stow
+  at xsettingsd fontconfig solaar ghostty python3-astral stow darkman
 
 # Clipboard history (optional): cliphist + niri-copy-paste (own repo)
 
@@ -39,12 +41,16 @@ cd dotfiles
 Enable user services (logged into the graphical session):
 
 ```sh
-systemctl --user enable --now theme-scheduler.timer
+systemctl --user enable --now darkman.service
 systemctl --user enable waybar.service
 ```
 
-Theme scheduling runs `at(1)` one-shot jobs — edit lat/lon + timezone in
-`niri/.config/niri/scripts/schedule-theme-transitions` for your location.
+Themes: darkman is the authority — it turns on dark mode at sundown and light
+again at sunrise. On top of that, `niri/.../scripts/schedule-early-dark` arms
+a one-shot `at(1)` job that runs `darkman set dark` a full hour **before**
+sunset. `apply-theme` does the actual GTK/niri switch; edit lat/lon + timezone
+in `schedule-early-dark` (and `~/.config/darkman/config.yaml`) for your
+location.
 
 ## Day-to-day
 

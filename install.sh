@@ -12,7 +12,7 @@ fi
 
 # Packages -> stow symlinks them into $HOME (e.g. ~/.config/niri -> repo).
 # Run as the regular user, not root.
-stow -v --restow niri waybar mako fuzzel ghostty fontconfig xsettingsd gtk-3.0 gtk-4.0 systemd autostart shell
+stow -v --restow niri waybar mako fuzzel ghostty fontconfig xsettingsd gtk-3.0 gtk-4.0 autostart shell darkman xdg-desktop-portal theme
 
 # Wallpapers: copied (not symlinked) so ~/Pictures keeps screenshots etc.
 mkdir -p "$HOME/Pictures/Wallpapers"
@@ -26,7 +26,7 @@ cat <<'EOF'
 Done.
 
 Optional next steps:
-  systemctl --user enable --now theme-scheduler.timer
+  systemctl --user enable --now darkman.service   # auto light/dark via sunrise/sunset
   systemctl --user enable waybar.service     # if you use the systemd-managed bar
   systemctl --user daemon-reload
 
