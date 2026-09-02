@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+WALLPAPER_DIR="$HOME/Pictures/Wallpapers"
+STATE_FILE="$HOME/.cache/niri-wallpaper-index"
+PID_FILE="$HOME/.cache/niri-wallpaper-pid"
+DAEMON_PID_FILE="$HOME/.cache/niri-wallpaper-daemon-pid"
+NOTIFY_PID_FILE="$HOME/.cache/niri-wallpaper-notify-pid"
+CYCLE_INTERVAL="${WALLPAPER_CYCLE_INTERVAL:-300}"
+
+IMAGES=()
+while IFS= read -r -d '' f; do
+    IMAGES+=("$f")
+done < <(find "$WALLPAPER_DIR" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) -print0 | sort -z)
+
+if [ "${#IMAGES[@]}" -eq 0 ]; then
+    echo "No wallpapers found in $WALLPAPER_DIR" >&2
+    exit 1
+fi
+
+mkdir -p "$(dirname "$STATE_FILE")"
+
+read_index() {
+    local idx=0
+    if [ -f "$STATE_FILE" ]; then
+        idx=$(cat "$STATE_FILE" 2>/dev/null || echo 0)
+    fi
+    echo "$idx"
+}
+
+write_index() {
+    echo "$1" > "$STATE_FILE"
+}
+
+advance() {
+    local idx
+    idx=$(read_index)
+    write_index $(( (idx + 1) % ${#IMAGES[@]} ))
+}
+
+set_wallpaper() {
+    local img="$1"
+    if [ -f "$PID_FILE" ]; then
+        local old_pid
+        old_pid=$(cat "$PID_FILE" 2>/dev/null || true)
+        if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+            kill "$old_pid" 2>/dev/null || true
+        fi
+    fi
+    swaybg -m fill -i "$img" &
+    echo $! > "$PID_FILE"
+}
+
+next() {
+    local idx
+    idx=$(read_index)
+    set_wallpaper "${IMAGES[$idx]}"
+    write_index $(( (idx + 1) % ${#IMAGES[@]} ))
+}
+
+start_daemon() {
+    echo $$ > "$DAEMON_PID_FILE"
+    next
+    while true; do
+        sleep "$CYCLE_INTERVAL"
+        next
+    done
+}
+
+stop() {
+    if [ -f "$DAEMON_PID_FILE" ]; then
+        local dpid
+        dpid=$(cat "$DAEMON_PID_FILE" 2>/dev/null || true)
+        if [ -n "$dpid" ] && [ "$dpid" != "$$" ] && kill -0 "$dpid" 2>/dev/null; then
+            kill "$dpid" 2>/dev/null || true
+        fi
+        rm -f "$DAEMON_PID_FILE"
+    fi
+    if [ -f "$PID_FILE" ]; then
+        local pid
+        pid=$(cat "$PID_FILE" 2>/dev/null || true)
+        [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+    fi
+    if [ -f "$NOTIFY_PID_FILE" ]; then
+        local npid
+        npid=$(cat "$NOTIFY_PID_FILE" 2>/dev/null || true)
+        [ -n "$npid" ] && kill "$npid" 2>/dev/null || true
+    fi
+    rm -f "$PID_FILE" "$NOTIFY_PID_FILE"
+}
+
+case "${1:-next}" in
+    next)
+        next
+        ;;
+    advance)
+        advance
+        ;;
+    daemon)
+        start_daemon
+        ;;
+    stop)
+        stop
+        ;;
+    *)
+        echo "Usage: $0 {next|advance|daemon|stop}" >&2
+        exit 1
+        ;;
+esac

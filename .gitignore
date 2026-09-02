@@ -1,0 +1,20 @@
+# caches, logs, swap
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+.cache/
+.local/state/
+node_modules/
+
+# screenshots / misc media
+*.png
+
+# theme-tool (Matugen etc.) generated artifacts
+**/dank-colors.css
+**/dank-theme.toml
+**/dank-theme.yaml
+
+# mac
+.DS_Store

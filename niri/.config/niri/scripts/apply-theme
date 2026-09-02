@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Apply a color scheme and schedule the next transition.
+# Called by `at` jobs — one-shot, zero idle cost.
+# Usage: apply-theme dark | apply-theme light
+
+THEME="${1:?usage: apply-theme dark|light}"
+SCRIPTS_DIR="$HOME/.config/niri/scripts"
+LOG="$HOME/.cache/theme-scheduler.log"
+
+log() { printf '[%(%T)T] %s\n' -1 "$*" >>"$LOG"; }
+
+if [[ "$THEME" != "dark" && "$THEME" != "light" ]]; then
+    echo "usage: apply-theme dark|light" >&2
+    exit 1
+fi
+
+# Set color-scheme via gsettings (GTK apps pick this up)
+dconf write /org/gnome/desktop/interface/color-scheme "\"prefer-$THEME\""
+
+# Smooth screen crossfade (niri v0.1.6+)
+if command -v niri &>/dev/null; then
+    niri msg action do-screen-transition &
+    disown
+fi
+
+log "applied: $THEME"
+
+# Schedule the next transition
+"$SCRIPTS_DIR/schedule-theme-transitions" "$THEME"
