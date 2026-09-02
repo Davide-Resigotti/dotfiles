@@ -4,6 +4,6 @@ Comment=Toggle between dark and light mode
 Exec=/usr/bin/darkman toggle
 Terminal=false
 Type=Application
-Icon=weather-clear-night
+Icon=theme-moon
 Categories=Settings;
 Keywords=dark;light;theme;night;

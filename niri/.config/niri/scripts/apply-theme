@@ -24,7 +24,7 @@ dconf write /org/gnome/desktop/interface/color-scheme "\"prefer-$THEME\""
 # is not replaced by sed -i.
 DESKTOP_FILE="$HOME/.local/share/applications/toggle-theme.desktop"
 if [[ -e "$DESKTOP_FILE" ]]; then
-    if [[ "$THEME" == "dark" ]]; then ICON="weather-clear-night"; else ICON="weather-clear"; fi
+    if [[ "$THEME" == "dark" ]]; then ICON="theme-moon"; else ICON="theme-sun"; fi
     sed -i "s/^Icon=.*/Icon=$ICON/" "$(readlink -f "$DESKTOP_FILE")"
 fi
 
