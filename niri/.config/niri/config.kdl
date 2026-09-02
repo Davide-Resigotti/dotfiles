@@ -411,6 +411,8 @@ binds {
     XF86AudioLowerVolume allow-when-locked=true { spawn-sh "wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.1-"; }
     XF86AudioMute        allow-when-locked=true { spawn-sh "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"; }
     XF86AudioMicMute     allow-when-locked=true { spawn-sh "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"; }
+    XF86MonBrightnessUp   allow-when-locked=true { spawn-sh "$HOME/.config/niri/scripts/backlight.sh up"; }
+    XF86MonBrightnessDown allow-when-locked=true { spawn-sh "$HOME/.config/niri/scripts/backlight.sh down"; }
 
     // Example media keys mapping using playerctl.
     // This will work with any MPRIS-enabled media player.
@@ -669,6 +671,8 @@ binds {
 
     // Powers off the monitors. To turn them back on, do any input like
     // moving the mouse or pressing any other key.
-    // (disabled: Mod+Shift+P is used for Bitwarden)
+    // NOTE: on this Asahi MacBook, DPMS-blanking the internal panel is seen as a
+    // lid close, so niri's power-off-monitors suspends the whole machine. Disabled
+    // to avoid accidental sleeps; sleep via closing the lid (or swayidle, if kept).
     // Mod+Shift+P { power-off-monitors; }
 }
