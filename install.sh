@@ -12,7 +12,11 @@ fi
 
 # Packages -> stow symlinks them into $HOME (e.g. ~/.config/niri -> repo).
 # Run as the regular user, not root.
-stow -v --restow niri waybar mako fuzzel ghostty fontconfig xsettingsd gtk-3.0 gtk-4.0 autostart shell darkman xdg-desktop-portal theme
+stow -v --restow niri waybar mako fuzzel ghostty fontconfig xsettingsd gtk-3.0 gtk-4.0 autostart shell darkman xdg-desktop-portal theme home-assistant
+
+# HA toggles (.desktop Exec uses the bare name; needs ~/.local/bin on PATH)
+mkdir -p "$HOME/.local/bin"
+ln -sf "$HOME/.config/home-assistant/scripts/ha-toggle" "$HOME/.local/bin/ha-toggle"
 
 # Wallpapers: copied (not symlinked) so ~/Pictures keeps screenshots etc.
 mkdir -p "$HOME/Pictures/Wallpapers"
@@ -35,4 +39,8 @@ Machine-specific adjustments after restore:
     (names/modes come from `niri msg outputs`).
   * xsettingsd: adjust Gdk/UnscaledDPI in ~/.config/xsettingsd/xsettingsd.conf for your display.
   * The clipboard daemon binding expects `niri-copy-paste` on PATH (build from its own repo).
+  * Home Assistant: create ~/.config/home-assistant/token (chmod 600) with a long-lived
+    access token from your HA instance; ha-toggle reads it to call the local API.
+    The HA base URL lives in ~/.config/home-assistant/scripts/ha-toggle.
+  * ~/.local/bin must be on PATH for the Fan/Studio launcher entries to work.
 EOF

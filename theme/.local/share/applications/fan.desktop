@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Fan
+GenericName=Home Assistant Fan
+Comment=Toggle the Home Assistant fan
+Exec=ha-toggle fan.fan
+Icon=ha-fan
+Terminal=false
+Categories=Utility;
+StartupNotify=false

@@ -19,7 +19,8 @@ files as usual; every change is a git change. No copying, no sync step.
 | `fontconfig` | `~/.config/fontconfig` | font aliases (Nerd Font -> Cascadia Code NF) |
 | `darkman`    | `~/.config/darkman`, `~/.local/share/darkman` | darkman config (fixed Milan coords) + transition hook |
 | `xdg-desktop-portal` | `~/.config/xdg-desktop-portal` | prefer `darkman` as the Settings portal |
-| `theme`     | `~/.local/share/applications/toggle-theme.desktop` | "Theme" launcher entry: `darkman toggle`, icon sun/moon follows current mode |
+| `theme`     | `~/.local/share/applications/*.desktop`, `~/.local/share/icons/hicolor` | "Theme" launcher (`darkman toggle`, sun/moon icons) + Home Assistant dashboards/toggles (HA, Proxmox, Pi-hole, Immich, Frigate, Homepage, Fan, Studio) + their icons |
+| `home-assistant` | `~/.config/home-assistant/scripts` | `ha-toggle <entity>` — toggles a HA entity via the local REST API (token read from `~/.config/home-assistant/token`) |
 | `autostart`  | `~/.config/autostart` | XWayland video bridge |
 | `shell`      | `~/.bashrc`, `~/.bash_profile`, `~/.profile`, `~/.gitconfig` | trimmed, machine-agnostic |
 | `wallpapers` | copied to `~/Pictures/Wallpapers` | JPEGs used by `wallpaper-cycle` |
@@ -44,6 +45,19 @@ Enable user services (logged into the graphical session):
 systemctl --user enable --now darkman.service
 systemctl --user enable waybar.service
 ```
+
+Home Assistant toggles need a token after restore (never committed):
+
+```sh
+mkdir -p ~/.config/home-assistant
+# paste a long-lived access token from HA (Profile -> Security -> Long-lived access tokens)
+umask 177 && cat > ~/.config/home-assistant/token
+```
+
+The HA base URL is in `~/.config/home-assistant/scripts/ha-toggle`; the
+dashboards' URLs are hardcoded in the `.desktop` files under the `theme`
+package — edit them for your network. The Fan/Studio entries call the bare
+`ha-toggle` name, so keep `~/.local/bin` (symlinked by `install.sh`) on PATH.
 
 Themes: darkman is the authority — it turns on dark mode at sundown and light
 again at sunrise. On top of that, `niri/.../scripts/schedule-early-dark` arms

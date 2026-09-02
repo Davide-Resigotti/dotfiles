@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Studio
+GenericName=Home Assistant Studio Light
+Comment=Toggle the Home Assistant studio light
+Exec=ha-toggle light.studio
+Icon=ha-light
+Terminal=false
+Categories=Utility;
+StartupNotify=false

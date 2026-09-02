@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Immich
+GenericName=Immich
+Comment=Open Immich photo library
+Exec=/usr/bin/xdg-open "http://192.168.1.85:2283"
+Icon=immich
+Terminal=false
+Categories=Network;WebBrowser;
+StartupNotify=false

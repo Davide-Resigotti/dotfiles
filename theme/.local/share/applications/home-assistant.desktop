@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Home Assistant
+GenericName=Home Assistant
+Comment=Open Home Assistant dashboard
+Exec=/usr/bin/xdg-open "http://homeassistant.local:8123"
+Icon=home-assistant
+Terminal=false
+Categories=Network;WebBrowser;
+StartupNotify=false

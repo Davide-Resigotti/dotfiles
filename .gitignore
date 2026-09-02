@@ -6,6 +6,7 @@
 *~
 .cache/
 .local/state/
+**/icon-theme.cache
 node_modules/
 
 # screenshots / misc media

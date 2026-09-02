@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Pi-hole
+GenericName=Pi-hole
+Comment=Open Pi-hole admin console
+Exec=/usr/bin/xdg-open "http://192.168.1.6/admin"
+Icon=pi-hole
+Terminal=false
+Categories=Network;WebBrowser;
+StartupNotify=false

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Proxmox
+GenericName=Proxmox VE
+Comment=Open Proxmox VE web interface
+Exec=/usr/bin/xdg-open "http://192.168.1.15:8006"
+Icon=proxmox
+Terminal=false
+Categories=Network;WebBrowser;
+StartupNotify=false

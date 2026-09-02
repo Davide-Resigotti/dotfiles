@@ -89,39 +89,15 @@ margin-left: 4px;
 
 #memory,
 #mpris,
-#custom-expand-icon,
 #tray,
 #cpu,
 #custom-clock,
 #battery,
-#backlight,
-#network,
-#bluetooth,
-#pulseaudio,
-#power-profiles-daemon,
-#power-profiles-daemon.performance,
-#power-profiles-daemon.balanced,
-#power-profiles-daemon.power-saver,
-#custom-omarchy,
-#idle_inhibitor,
-#custom-idle-indicator,
-#custom-notification-silencing-indicator,
-#custom-updatespacman,
-#custom-screenrecording-indicator,
-#custom-update {
+#pulseaudio {
   min-width: 12px;
   padding: 0 4px;
   margin: 1px 3px 1px 3px;
   opacity: 1;
-}
-
-#custom-update {
-opacity: 1;
-}
-	
-
-#custom-updatespacman {
-opacity: 1;
 }
 
 #tray {
@@ -129,23 +105,9 @@ opacity: 1;
 padding-top: 2px;
 }
 
-#idle_inhibitor.deactivated {
-opacity: 0.5;
-}
-
-
-#idle_inhibitor.activated {
-opacity: 1;
-}
-
-#network {
-  margin-left: 0;
-}
-
 #custom-separator7,
 #custom-separator6,
 #custom-separator5,
-#custom-separator4,
 #custom-separator3,
 #custom-separator2,
 #custom-separator {
@@ -158,21 +120,6 @@ opacity: 1;
 
 tooltip {
   padding: 2px;
-}
-
-#custom-idle-indicator,
-#custom-notification-silencing-indicator {
-  min-width: 12px;
-  margin-left: 0;
-  margin-right: 0;
-  font-size: 12px;
-  padding-bottom: 0px;
-}
-
-#custom-idle-indicator.active,
-#custom-notification-silencing-indicator.active {
-  color: #a55555;
-  opacity: 1;
 }
 
 .hidden {
@@ -190,43 +137,6 @@ tooltip {
 tooltip label {
     color: alpha(@foreground, 0.65);
     font-weight: normal;
-}
-
-#custom-voxtype {
-  min-width: 12px;
-  margin: 0 0 0 2.5px;
-}
-
-#custom-voxtype.recording {
-  color: #a55555;
-}
-
-/* Specific animation Module */
-
-
-#custom-screenrecording-indicator {
-  animation-timing-function: linear;
-  animation-iteration-count: infinite;
-  animation-direction: alternate;
-  color: transparent;
-}
-
-#custom-screenrecording-indicator.active {
-  color: #eb7087;
-  animation-name: blink-recording;
-  animation-duration: 0.5s;
-}
-
-@keyframes blink-recording {
-    to {
-        color: @background;
-    }
-}
-
-@keyframes blink-inhibitor {
-    to {
-        color: @background;
-    }
 }
 
 #mpris {
