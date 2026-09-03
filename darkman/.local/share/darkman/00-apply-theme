@@ -9,7 +9,3 @@ set -euo pipefail
 MODE="${1:?usage: 00-apply-theme dark|light}"
 
 "$HOME/.config/niri/scripts/apply-theme" "$MODE"
-
-if [[ "$MODE" == "light" ]]; then
-    "$HOME/.config/niri/scripts/schedule-early-dark"
-fi

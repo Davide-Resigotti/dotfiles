@@ -1,0 +1,8 @@
+# Window behavior
+confirm-close-surface = false
+
+# Command
+command = tmux
+
+# Dynamic accent & theme
+config-file = ?accent.conf

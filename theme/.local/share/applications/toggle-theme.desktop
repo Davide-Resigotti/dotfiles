@@ -1,9 +1,8 @@
 [Desktop Entry]
 Name=Theme
-Comment=Toggle between dark and light mode
-Exec=/usr/bin/darkman toggle
+Exec=toggle-theme
 Terminal=false
 Type=Application
-Icon=theme-sun
+Icon=theme-moon
 Categories=Settings;
 Keywords=dark;light;theme;night;

@@ -236,12 +236,14 @@ layout {
     }
 }
 
+// Dynamic accent color overriding layout properties (focus-ring)
+include optional=true "accent.kdl"
+
 // Add lines like this to spawn processes at startup.
 // Note that running niri as a session supports xdg-desktop-autostart,
 // which may be more convenient to use.
 // See the binds section below for more spawn examples.
 
-spawn-sh-at-startup "sleep 1 && $HOME/.config/niri/scripts/schedule-early-dark &"
 spawn-sh-at-startup "sleep 1 && $HOME/.config/waypaper/scripts/waypaper-rotate &"
 spawn-at-startup "niri-copy-paste daemon"
 
@@ -249,8 +251,6 @@ spawn-at-startup "niri-copy-paste daemon"
 // Keep this disabled to avoid starting a second instance.
 // spawn-at-startup "waybar"
 
-// To run a shell command (with variables, pipes, etc.), use spawn-sh-at-startup:
-// spawn-sh-at-startup "qs -c ~/source/qs/MyAwesomeShell"
 
 hotkey-overlay {
     // Uncomment this line to disable the "Important Hotkeys" pop-up at startup.
@@ -291,16 +291,6 @@ animations {
 // Find more information on the wiki:
 // https://niri-wm.github.io/niri/Configuration:-Window-Rules
 
-// Work around WezTerm's initial configure bug
-// by setting an empty default-column-width.
-window-rule {
-    // This regular expression is intentionally made as specific as possible,
-    // since this is the default config, and we want no false positives.
-    // You can get away with just app-id="wezterm" if you want.
-    match app-id=r#"^org\.wezfurlong\.wezterm$"#
-    default-column-width {}
-}
-
 // Open the Firefox picture-in-picture player as floating by default.
 window-rule {
     // This app-id regular expression will work for both:
@@ -310,52 +300,17 @@ window-rule {
     open-floating true
 }
 
-// Open the alarm camera viewer as floating at the top-right corner.
-window-rule {
-    match title="^Alarm: TRIGGERED"
-    open-floating true
-    default-column-width { fixed 480; }
-    default-window-height { fixed 360; }
-    default-floating-position x=-40 y=40 relative-to="top-right"
-}
-
-// Studio light color picker popup (top-right below waybar)
-window-rule {
-    match title="^studio-picker$"
-    open-floating true
-    default-floating-position x=20 y=15 relative-to="top-right"
-}
-
-// Alarm action menu popup (top-right below waybar)
-window-rule {
-    match title="^alarm-menu$"
-    open-floating true
-    default-floating-position x=20 y=15 relative-to="top-right"
-}
-
 // nvim-wl-anywhere: open as floating popup
 window-rule {
     match app-id=r#"^nvim-wl-anywhere$"#
     open-floating true
 }
 
-// Example: block out two password managers from screen capture.
-// (This example rule is commented out with a "/-" in front.)
-/-window-rule {
-    match app-id=r#"^org\.keepassxc\.KeePassXC$"#
-    match app-id=r#"^org\.gnome\.World\.Secrets$"#
-
-    block-out-from "screen-capture"
-
-    // Use this instead if you want them visible on third-party screenshot tools.
-    // block-out-from "screencast"
-}
-
-// Example: enable rounded corners for all windows.
-// (This example rule is commented out with a "/-" in front.)
 window-rule {
     geometry-corner-radius 12
     clip-to-geometry true
+    opacity 0.97
+    draw-border-with-background false
 }
 
 binds {
@@ -378,25 +333,16 @@ binds {
 
     // Suggested binds for running programs: terminal, app launcher, screen locker.
     Mod+Return hotkey-overlay-title="Open a Terminal: ghostty" { spawn "ghostty"; }
-    Mod+A hotkey-overlay-title="Open opencode" { spawn "ghostty" "-e" "opencode"; }
+    Mod+A hotkey-overlay-title="Open agy" { spawn "ghostty" "-e" "tmux" "new-session" "agy"; }
     Mod+B hotkey-overlay-title="Open Firefox" { spawn "firefox"; }
     Mod+D hotkey-overlay-title="Run an Application: fuzzel" { spawn "fuzzel"; }
 
     Super+Space hotkey-overlay-title="Run an Application: fuzzel" { spawn "fuzzel"; }
-    // Binds below were carried over from another machine (/home/davide utilities).
-    // Commented out here because the scripts don't exist in this repo. Re-enable + install as needed.
-    // Super+E allow-when-locked=true hotkey-overlay-title="renCal" { spawn-sh "$HOME/.local/bin/niri-toggle rencal rencal"; }
-    // Super+M allow-when-locked=true hotkey-overlay-title="Mailspring" { spawn-sh "$HOME/.local/bin/niri-toggle Mailspring mailspring --password-store=\"gnome-libsecret\""; }
 
     Super+N hotkey-overlay-title="Neovim Anywhere" { spawn-sh "$HOME/.local/share/nvim-wl-anywhere/nvim-wl-anywhere.sh"; }
     Super+Alt+L hotkey-overlay-title="Lock the Screen: swaylock" { spawn "swaylock"; }
 
-    // Mod+Shift+X hotkey-overlay-title="Power: shutdown" { spawn "$HOME/.local/bin/wofi-power"; }
     Mod+T hotkey-overlay-title="Screenshot: Partial" { screenshot; }
-    // Bitwarden autotype (works in apps and browsers) — needs bw-autofill installed.
-    // Mod+P hotkey-overlay-title="Bitwarden: Username+Password" { spawn "$HOME/.local/bin/bw-autofill"; }
-    // Mod+Shift+P hotkey-overlay-title="Bitwarden: Password only" { spawn "$HOME/.local/bin/bw-autofill" "--target" "password"; }
-    // Mod+Ctrl+P hotkey-overlay-title="Bitwarden: Username only" { spawn "$HOME/.local/bin/bw-autofill" "--target" "username"; }
     Mod+Shift+W hotkey-overlay-title="Next Wallpaper" { spawn-sh "$HOME/.config/waypaper/scripts/waypaper-cycle-once"; }
 
     // Use spawn-sh to run a shell command. Do this if you need pipes, multiple commands, etc.
@@ -424,14 +370,6 @@ binds {
     F12 allow-when-locked=true { spawn-sh "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"; }
     XF86AudioStop        allow-when-locked=true { spawn-sh "playerctl stop"; }
 
-    // Home-assistant controls from another machine — commented out (scripts not in this repo).
-    // F4 allow-when-locked=true { spawn-sh "$HOME/.config/waybar/home-assistant/studio-light/brightness.sh down"; }
-    // F5 allow-when-locked=true { spawn-sh "$HOME/.config/waybar/home-assistant/studio-light/brightness.sh up"; }
-    // F6 allow-when-locked=true { spawn-sh "$HOME/.config/waybar/home-assistant/studio-light/toggle.sh"; }
-    // F7 allow-when-locked=true { spawn-sh "$HOME/.config/waybar/home-assistant/switch-t34/toggle.sh"; }
-    // Super+F4 allow-when-locked=true { spawn-sh "$HOME/.config/waybar/home-assistant/studio-light/studio-light.sh --preset-prev"; }
-    // Super+F5 allow-when-locked=true { spawn-sh "$HOME/.config/waybar/home-assistant/studio-light/studio-light.sh --preset-next"; }
-
     // Open/close the Overview: a zoomed-out view of workspaces and windows.
     // You can also move the mouse into the top-left hot corner,
     // or do a four-finger swipe up on a touchpad.
@@ -457,12 +395,6 @@ binds {
     Mod+Ctrl+K     { move-window-up; }
     Mod+Ctrl+L     { move-column-right; }
 
-    // Alternative: window-or-workspace variants (uncomment to try)
-    // Mod+J     { focus-window-or-workspace-down; }
-    // Mod+K     { focus-window-or-workspace-up; }
-    // Mod+Ctrl+J     { move-window-down-or-to-workspace-down; }
-    // Mod+Ctrl+K     { move-window-up-or-to-workspace-up; }
-
     Mod+Home { focus-column-first; }
     Mod+End  { focus-column-last; }
     Mod+Ctrl+Home { move-column-to-first; }
@@ -486,14 +418,6 @@ binds {
     Mod+Shift+Ctrl+K     { move-column-to-monitor-up; }
     Mod+Shift+Ctrl+L     { move-column-to-monitor-right; }
 
-    // Alternatively, there are commands to move just a single window:
-    // Mod+Shift+Ctrl+Left  { move-window-to-monitor-left; }
-    // ...
-
-    // And you can also move a whole workspace to another monitor:
-    // Mod+Shift+Ctrl+Left  { move-workspace-to-monitor-left; }
-    // ...
-
     Mod+Page_Down      { focus-workspace-down; }
     Mod+Page_Up        { focus-workspace-up; }
     Mod+U              { focus-workspace-down; }
@@ -502,10 +426,6 @@ binds {
     Mod+Ctrl+Page_Up   { move-column-to-workspace-up; }
     Mod+Ctrl+U         { move-column-to-workspace-down; }
     Mod+Ctrl+I         { move-column-to-workspace-up; }
-
-    // Alternatively, there are commands to move just a single window:
-    // Mod+Ctrl+Page_Down { move-window-to-workspace-down; }
-    // ...
 
     Mod+Shift+Page_Down { move-workspace-down; }
     Mod+Shift+Page_Up   { move-workspace-up; }
@@ -541,9 +461,6 @@ binds {
     // These binds are also affected by touchpad's natural-scroll, so these
     // example binds are "inverted", since we have natural-scroll enabled for
     // touchpads by default.
-    // Mod+TouchpadScrollDown { spawn-sh "wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.02+"; }
-    // Mod+TouchpadScrollUp   { spawn-sh "wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.02-"; }
-
     // You can refer to workspaces by index. However, keep in mind that
     // niri is a dynamic workspace system, so these commands are kind of
     // "best effort". Trying to refer to a workspace index bigger than
@@ -570,9 +487,6 @@ binds {
     Mod+Ctrl+7 { move-column-to-workspace 7; }
     Mod+Ctrl+8 { move-column-to-workspace 8; }
     Mod+Ctrl+9 { move-column-to-workspace 9; }
-
-    // Alternatively, there are commands to move just a single window:
-    // Mod+Ctrl+1 { move-window-to-workspace 1; }
 
     // Hyprland-style: move the focused window to a specific workspace (Mod+Shift+[1-9]).
     Mod+Shift+1 { move-window-to-workspace 1; }
@@ -649,13 +563,6 @@ binds {
     // rather than stacked on top of each other.
     Mod+W { toggle-column-tabbed-display; }
 
-    // Actions to switch layouts.
-    // Note: if you uncomment these, make sure you do NOT have
-    // a matching layout switch hotkey configured in xkb options above.
-    // Having both at once on the same hotkey will break the switching,
-    // since it will switch twice upon pressing the hotkey (once by xkb, once by niri).
-    // Mod+Space       { switch-layout "next"; }
-    // Mod+Shift+Space { switch-layout "prev"; }
 
     // request that niri stops processing the keyboard shortcuts defined here
     // so they may, for example, forward the key presses as-is to a remote machine.

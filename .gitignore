@@ -16,6 +16,21 @@ node_modules/
 **/dank-colors.css
 **/dank-theme.toml
 **/dank-theme.yaml
+**/accent.conf
+**/accent.kdl
+**/accent.ini
+**/colors.css
+**/current-accent.env
 
 # mac
 .DS_Store
+
+# Python virtual environments & bytecode
+.venv/
+__pycache__/
+*.pyc
+
+# Heavy media files (>50MB)
+*.mp4
+*.mkv
+*.webm

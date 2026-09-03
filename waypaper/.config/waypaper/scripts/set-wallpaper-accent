@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+WALLPAPER="${1:-}"
+
+# Fallback: if no wallpaper passed, read from waypaper config
+if [[ -z "$WALLPAPER" ]]; then
+    WP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/waypaper/config.ini"
+    if [[ -f "$WP_CONFIG" ]]; then
+        WALLPAPER="$(sed -n 's/^[[:space:]]*wallpaper[[:space:]]*=[[:space:]]*//p' "$WP_CONFIG" | head -n1 | tr -d '[:space:]')"
+        WALLPAPER="${WALLPAPER/#\~/$HOME}"
+    fi
+fi
+
+if [[ -z "$WALLPAPER" ]]; then
+    exit 0
+fi
+
+# Locate set-accent command
+SET_ACCENT_BIN="$HOME/.local/bin/set-accent"
+if ! command -v set-accent &>/dev/null && [[ -x "$SET_ACCENT_BIN" ]]; then
+    set_accent() { "$SET_ACCENT_BIN" "$@"; }
+elif command -v set-accent &>/dev/null; then
+    set_accent() { command set-accent "$@"; }
+else
+    set_accent() { "$HOME/dotfiles/theme/.local/bin/set-accent" "$@"; }
+fi
+
+DIR="$(dirname "$WALLPAPER")"
+
+# Check if machine is on AC power (ignore charging state for 75% limiters)
+is_on_ac_power() {
+    for ps in /sys/class/power_supply/*; do
+        if [[ -f "$ps/type" && -f "$ps/online" ]]; then
+            local type
+            type="$(cat "$ps/type" 2>/dev/null || true)"
+            if [[ "$type" == "Mains" || "$type" == "USB" || "$type" == "USB_PD" || "$type" == "AC" ]]; then
+                if [[ "$(cat "$ps/online" 2>/dev/null || true)" == "1" ]]; then
+                    return 0
+                fi
+            fi
+        fi
+    done
+    return 1
+}
+
+# If on battery and chosen wallpaper is a video, switch mpvpaper to static frame
+if ! is_on_ac_power && [[ ! "$WALLPAPER" =~ \.(jpg|jpeg|png|webp|avif)$ ]] && [[ -S "/tmp/mpv-socket-All" ]]; then
+    CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/wallpaper-frames"
+    mkdir -p "$CACHE_DIR"
+    BASE="$(basename "$WALLPAPER")"
+    FRAME="$CACHE_DIR/${BASE%.*}.jpg"
+    if [[ ! -f "$FRAME" ]] && command -v ffmpeg &>/dev/null; then
+        ffmpeg -y -ss 00:00:01 -i "$WALLPAPER" -vframes 1 -q:v 2 "$FRAME" 2>/dev/null || true
+    fi
+    if [[ -f "$FRAME" ]]; then
+        echo "loadfile \"$FRAME\"" | socat - /tmp/mpv-socket-All 2>/dev/null || true
+        echo "set pause yes" | socat - /tmp/mpv-socket-All 2>/dev/null || true
+    fi
+fi
+if [[ -f "$DIR/.color" ]]; then
+    CUSTOM_COLOR="$(head -n1 "$DIR/.color" | tr -d '[:space:]')"
+    if [[ -n "$CUSTOM_COLOR" ]]; then
+        set_accent "$CUSTOM_COLOR"
+        exit 0
+    fi
+fi
+
+# 2. Extract subfolder relative to ~/Pictures/Wallpapers
+WALLPAPERS_BASE="$HOME/Pictures/Wallpapers"
+CANON_WALLPAPERS="$(readlink -f "$WALLPAPERS_BASE" 2>/dev/null || echo "$WALLPAPERS_BASE")"
+CANON_DIR="$(readlink -f "$DIR" 2>/dev/null || echo "$DIR")"
+
+if [[ "$CANON_DIR" == "$CANON_WALLPAPERS"* && "$CANON_DIR" != "$CANON_WALLPAPERS" ]]; then
+    REL="${CANON_DIR#$CANON_WALLPAPERS/}"
+    TOP_FOLDER="${REL%%/*}"
+    if [[ -n "$TOP_FOLDER" ]]; then
+        set_accent "$TOP_FOLDER"
+        exit 0
+    fi
+fi
+
+# 3. Fallback to folder name
+FOLDER_NAME="$(basename "$DIR")"
+if [[ -n "$FOLDER_NAME" && "$FOLDER_NAME" != "Wallpapers" && "$FOLDER_NAME" != "." ]]; then
+    set_accent "$FOLDER_NAME" || set_accent "orange"
+else
+    set_accent "orange"
+fi

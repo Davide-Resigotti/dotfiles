@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Apply a color scheme.
-# Called by darkman at sunrise/sundown transitions (and by our early-dark at
-# job, which funnels back through `darkman set dark`).
-# Usage: apply-theme dark | apply-theme light
-
 THEME="${1:?usage: apply-theme dark|light}"
 LOG="$HOME/.cache/theme-scheduler.log"
 
@@ -16,19 +11,60 @@ if [[ "$THEME" != "dark" && "$THEME" != "light" ]]; then
     exit 1
 fi
 
-# Set color-scheme via gsettings (GTK apps pick this up)
-dconf write /org/gnome/desktop/interface/color-scheme "\"prefer-$THEME\""
-
-# Reflect the mode in the launcher icon (sun by day, moon at night).
-# The .desktop file lives in dotfiles; edit the real file so stow's symlink
-# is not replaced by sed -i.
-DESKTOP_FILE="$HOME/.local/share/applications/toggle-theme.desktop"
-if [[ -e "$DESKTOP_FILE" ]]; then
-    if [[ "$THEME" == "dark" ]]; then ICON="theme-moon"; else ICON="theme-sun"; fi
-    sed -i "s/^Icon=.*/Icon=$ICON/" "$(readlink -f "$DESKTOP_FILE")"
+if [[ "$THEME" == "dark" ]]; then
+    GTK_THEME="Breeze-Dark"
+    ICON_THEME="breeze-dark"
+    PREFER_DARK="true"
+    DESKTOP_ICON="theme-moon"
+else
+    GTK_THEME="Breeze"
+    ICON_THEME="breeze"
+    PREFER_DARK="false"
+    DESKTOP_ICON="theme-sun"
 fi
 
-# Smooth screen crossfade (niri v0.1.6+)
+# 1. dconf & gsettings (Portal & GNOME settings)
+dconf write /org/gnome/desktop/interface/color-scheme "\"prefer-$THEME\""
+gsettings set org.gnome.desktop.interface gtk-theme "$GTK_THEME" 2>/dev/null || true
+gsettings set org.gnome.desktop.interface icon-theme "$ICON_THEME" 2>/dev/null || true
+
+# 2. GTK 3 & 4 settings files (avoid breaking stow symlinks by editing real files)
+GTK3_CONF="$HOME/.config/gtk-3.0/settings.ini"
+if [[ -f "$GTK3_CONF" ]]; then
+    REAL_GTK3="$(readlink -f "$GTK3_CONF")"
+    sed -i "s/^gtk-theme-name=.*/gtk-theme-name=$GTK_THEME/" "$REAL_GTK3"
+    sed -i "s/^gtk-application-prefer-dark-theme=.*/gtk-application-prefer-dark-theme=$PREFER_DARK/" "$REAL_GTK3"
+    sed -i "s/^gtk-icon-theme-name=.*/gtk-icon-theme-name=$ICON_THEME/" "$REAL_GTK3"
+fi
+
+GTK4_CONF="$HOME/.config/gtk-4.0/settings.ini"
+if [[ -f "$GTK4_CONF" ]]; then
+    REAL_GTK4="$(readlink -f "$GTK4_CONF")"
+    sed -i "s/^gtk-application-prefer-dark-theme=.*/gtk-application-prefer-dark-theme=$PREFER_DARK/" "$REAL_GTK4"
+    sed -i "s/^gtk-icon-theme-name=.*/gtk-icon-theme-name=$ICON_THEME/" "$REAL_GTK4"
+fi
+
+# 3. xsettingsd
+XSETTINGS_CONF="$HOME/.config/xsettingsd/xsettingsd.conf"
+if [[ -f "$XSETTINGS_CONF" ]]; then
+    REAL_XSETTINGS="$(readlink -f "$XSETTINGS_CONF")"
+    sed -i "s/^Net\/ThemeName .*/Net\/ThemeName \"$GTK_THEME\"/" "$REAL_XSETTINGS"
+    sed -i "s/^Net\/IconThemeName .*/Net\/IconThemeName \"$ICON_THEME\"/" "$REAL_XSETTINGS"
+    pkill -HUP xsettingsd 2>/dev/null || true
+fi
+
+# 4. Update system-wide accent and tinted colors
+if command -v set-accent &>/dev/null; then
+    set-accent current
+fi
+
+# 5. Reflect the mode in the launcher icon
+DESKTOP_FILE="$HOME/.local/share/applications/toggle-theme.desktop"
+if [[ -e "$DESKTOP_FILE" ]]; then
+    sed -i "s/^Icon=.*/Icon=$DESKTOP_ICON/" "$(readlink -f "$DESKTOP_FILE")"
+fi
+
+# 6. Smooth screen crossfade (niri v0.1.6+)
 if command -v niri &>/dev/null; then
     niri msg action do-screen-transition &
     disown

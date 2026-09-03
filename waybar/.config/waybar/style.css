@@ -1,8 +1,7 @@
-@define-color background #161616;
-@define-color foreground #d8dee9;
+@import "colors.css";
 
-@define-color bg @background;
-@define-color fg @foreground;
+@define-color background @bg;
+@define-color foreground @fg;
 
 * {
   /* background-color: @background; */
@@ -58,7 +57,7 @@ margin-left: 4px;
 #workspaces button.focused,
 #workspaces button.active {
   color: @background;
-  background-color: #df6124;
+  background-color: @accent;
   padding: 0px 4px;
   margin: 4px 2px;
   opacity: 1.0;
@@ -83,7 +82,7 @@ margin-left: 4px;
 #workspaces button.empty.focused,
 #workspaces button.empty.active {
   opacity: 1;
-  background-color: #df6124;
+  background-color: @accent;
   color: @background;
 }
 
@@ -188,6 +187,14 @@ animation: repeat;
 #pulseaudio.critical,
 #memory.critical,
 #cpu.critical {
-    color: #df6124; /* high load */
+    color: @accent; /* high load */
     background-color: @background;
 }
+
+#pulseaudio.muted {
+    font-style: italic;
+    font-weight: 900;
+    color: @accent;
+}
+
+/* accent-ts: 1788458233703398241 */

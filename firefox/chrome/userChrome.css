@@ -1,0 +1,46 @@
+@import url("accent.css");
+
+/* Top navigation toolbar & header: dynamically displays the live theme frame */
+#navigator-toolbox {
+  background-color: var(--lwt-accent-color, var(--theme-bg, #221d27)) !important;
+  background-image: none !important;
+  color: var(--lwt-text-color, #dcdfe4) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+#nav-bar {
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+/* Vertical tabs sidebar & panel: dynamically tracks live theme frame */
+#sidebar-box,
+#sidebar-main,
+#sidebar,
+.sidebar-panel {
+  background-color: var(--lwt-sidebar-background-color, var(--lwt-accent-color, var(--theme-bg, #221d27))) !important;
+  background-image: none !important;
+  color: var(--lwt-text-color, #dcdfe4) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Active tab highlight */
+.tabbrowser-tab[selected="true"] .tab-background,
+.tabbrowser-tab[selected="true"] .tab-content {
+  background-color: var(--lwt-selected-tab-background-color, var(--theme-field-bg, #1c1721)) !important;
+  border-left: 3px solid var(--lwt-tab-line-color, var(--theme-accent, #a855f7)) !important;
+}
+
+/* URL address bar */
+#urlbar-background,
+#searchbar {
+  background-color: var(--lwt-toolbar-field-background-color, var(--theme-field-bg, #1c1721)) !important;
+  background-image: none !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 8px !important;
+}
+
+#urlbar[focused="true"] > #urlbar-background {
+  border-color: var(--theme-accent, #a855f7) !important;
+  box-shadow: 0 0 0 1px var(--theme-accent, #a855f7) !important;
+}

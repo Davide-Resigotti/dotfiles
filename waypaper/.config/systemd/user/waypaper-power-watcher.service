@@ -1,0 +1,13 @@
+[Unit]
+Description=Dynamic Live/Static Wallpaper Power Watcher
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.config/waypaper/scripts/power-wallpaper-watcher
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

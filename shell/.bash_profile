@@ -9,4 +9,6 @@ fi
 
 
 # Added by Antigravity CLI installer
-export PATH="/home/davideresigotti/.local/bin:$PATH"
+if ! [[ "$PATH" =~ "$HOME/.local/bin" ]]; then
+    export PATH="$HOME/.local/bin:$PATH"
+fi

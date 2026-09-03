@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""
+Dynamic Wallpaper Power Watcher
+Switches video wallpapers between live 60fps video (on AC power) and
+plain static 4K image frames with paused mpv (on battery) to eliminate battery drain.
+"""
+
+import glob
+import json
+import os
+import select
+import socket
+import subprocess
+import sys
+import time
+
+WP_CONFIG = os.path.expanduser("~/.config/waypaper/config.ini")
+CACHE_DIR = os.path.expanduser("~/.cache/wallpaper-frames")
+MPV_SOCKET = "/tmp/mpv-socket-All"
+
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+def is_on_ac():
+    """
+    Checks hardware power line online status.
+    Does NOT check charging status so 75% battery limits work properly.
+    """
+    for p in glob.glob("/sys/class/power_supply/*"):
+        try:
+            with open(os.path.join(p, "type")) as ft:
+                ptype = ft.read().strip()
+            if ptype in ("Mains", "USB", "USB_PD", "AC"):
+                with open(os.path.join(p, "online")) as fo:
+                    if fo.read().strip() == "1":
+                        return True
+        except Exception:
+            pass
+    return False
+
+def get_current_wallpaper():
+    if not os.path.isfile(WP_CONFIG):
+        return None
+    try:
+        with open(WP_CONFIG) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("wallpaper"):
+                    parts = line.split("=", 1)
+                    if len(parts) == 2:
+                        wp = parts[1].strip()
+                        return os.path.expanduser(wp)
+    except Exception:
+        pass
+    return None
+
+def get_static_frame(video_path):
+    base = os.path.basename(video_path)
+    stem, _ = os.path.splitext(base)
+    frame_path = os.path.join(CACHE_DIR, f"{stem}.jpg")
+    if not os.path.isfile(frame_path):
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-ss", "00:00:01", "-i", video_path, "-vframes", "1", "-q:v", "2", frame_path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True
+            )
+        except Exception:
+            pass
+    if os.path.isfile(frame_path):
+        return frame_path
+    return video_path
+
+def send_mpv(command):
+    if not os.path.exists(MPV_SOCKET):
+        return
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(1.0)
+            s.connect(MPV_SOCKET)
+            payload = json.dumps({"command": command}) + "\n"
+            s.sendall(payload.encode())
+    except Exception:
+        pass
+
+def sync_power(is_ac):
+    wp = get_current_wallpaper()
+    if not wp or not os.path.isfile(wp):
+        return
+
+    ext = os.path.splitext(wp)[1].lower()
+    is_video = ext in (".mp4", ".mkv", ".webm", ".mov", ".avi")
+    if not is_video:
+        return
+
+    if is_ac:
+        print(f"[{time.strftime('%T')}] Power connected (AC). Playing live video: {wp}", flush=True)
+        send_mpv(["loadfile", wp])
+        send_mpv(["set_property", "pause", False])
+    else:
+        frame = get_static_frame(wp)
+        print(f"[{time.strftime('%T')}] Power disconnected (Battery). Showing static image: {frame}", flush=True)
+        send_mpv(["loadfile", frame])
+        send_mpv(["set_property", "pause", True])
+
+def main():
+    last_state = None
+    
+    # Initial state sync
+    current_ac = is_on_ac()
+    last_state = current_ac
+    sync_power(current_ac)
+
+    # Start udev monitor for power supply changes
+    try:
+        udev_proc = subprocess.Popen(
+            ["udevadm", "monitor", "-u", "-s", "power_supply"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True
+        )
+    except Exception:
+        udev_proc = None
+
+    while True:
+        try:
+            if udev_proc and udev_proc.stdout:
+                # Wait for udev event or 1-second timeout
+                r, _, _ = select.select([udev_proc.stdout], [], [], 1.0)
+                if r:
+                    udev_proc.stdout.readline()
+                    time.sleep(0.1)  # small debounce for sysfs update
+            else:
+                time.sleep(1.0)
+
+            current_ac = is_on_ac()
+            if current_ac != last_state:
+                last_state = current_ac
+                sync_power(current_ac)
+        except Exception as e:
+            time.sleep(1.0)
+
+if __name__ == "__main__":
+    main()

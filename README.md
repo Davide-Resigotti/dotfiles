@@ -20,24 +20,34 @@ targets root-owned `/etc/keyd`, so `install.sh` needs sudo for it.)
 | `xsettingsd` | `~/.config/xsettingsd` | GTK settings bridge |
 | `fontconfig` | `~/.config/fontconfig` | font aliases (Nerd Font -> Cascadia Code NF) |
 | `darkman`    | `~/.config/darkman`, `~/.local/share/darkman` | darkman config (fixed Milan coords) + transition hook |
-| `xdg-desktop-portal` | `~/.config/xdg-desktop-portal` | prefer `darkman` as the Settings portal |
-| `theme`     | `~/.local/share/applications/*.desktop`, `~/.local/share/icons/hicolor` | "Theme" launcher (`darkman toggle`, sun/moon icons) + Home Assistant dashboards/toggles (HA, Proxmox, Pi-hole, Immich, Frigate, Homepage, Fan, Studio) + their icons |
+| `xdg-desktop-portal` | `~/.config/xdg-desktop-portal` | XDG desktop portal configuration |
+| `theme`     | `~/.config/theme`, `~/.local/bin/set-accent`, `~/.local/bin/toggle-theme`, `~/.local/share/applications` | Dynamic primary & system color accent dispatcher, Fuzzel theme toggle, and app launcher shortcuts |
 | `home-assistant` | `~/.config/home-assistant/scripts` | `ha-toggle <entity>` — toggles a HA entity via the local REST API (token read from `~/.config/home-assistant/token`) |
 | `autostart`  | `~/.config/autostart` | XWayland video bridge |
-| `shell`      | `~/.bashrc`, `~/.bash_profile`, `~/.profile`, `~/.gitconfig` | trimmed, machine-agnostic |
-| `wallpapers` | copied to `~/Pictures/Wallpapers` | JPEGs used by `wallpaper-cycle` |
-| `waypaper`   | `~/.config/waypaper` | wallpaper manager config and rotate/cycle scripts |
+| `shell`      | `~/.bashrc`, `~/.bash_profile`, `~/.profile`, `~/.gitconfig` | exports system color and accent variables, machine-agnostic |
+| `wallpapers` | copied to `~/Pictures/Wallpapers` | Wallpapers grouped by color folder (`Orange`, `Blue`, `Purple`) |
+| `waypaper`   | `~/.config/waypaper` | Wallpaper manager config, cycle scripts, and hardware power watcher daemon |
+| `firefox`    | `~/.config/mozilla/firefox/*/chrome` | Dynamic vertical tabs theme stylesheet (`userChrome.css`) & Pywalfox integration |
+| `yazi`       | `~/.config/yazi`    | terminal file manager (`yazi.toml`, opener configured for Neovim) |
+| `tmux`       | `~/.tmux.conf`      | terminal multiplexer config (vi keys, wl-copy integration, mouse, true color) |
+| `nvim`       | `~/.config/nvim`    | Neovim config (lazy.nvim, blink-cmp, Python/Lua LSP, snippets, UI) |
 | `keyd`      | copied to `/etc/keyd` (needs root) | keyboard remap: capslock->ctrl/esc |
 
 ## Restore on a new machine (Fedora)
 
 ```sh
-# Packages
+# System packages
 sudo dnf install niri waybar mako fuzzel swaybg wtype wl-clipboard \
-  at xsettingsd fontconfig solaar ghostty python3-astral stow darkman
+  at xsettingsd fontconfig solaar ghostty python3-astral stow darkman \
+  neovim tmux mpvpaper mpv python3-pip ripgrep fd-find fzf jq
 
-# Clipboard history (optional): cliphist + niri-copy-paste (own repo)
+# CLI tools and previewers via Homebrew (for Yazi and Neovim)
+brew install yazi ffmpeg sevenzip jq poppler fd fzf zoxide resvg imagemagick lua-language-server
 
+# Neovim Python language server and formatters (optional)
+pip install --user 'python-lsp-server[all]' pylsp-mypy python-lsp-black python-lsp-isort
+
+# Clone and run automated installer (handles stow, nvim virtualenv, plugins, and helpers)
 git clone https://github.com/Davide-Resigotti/dotfiles.git
 cd dotfiles
 ./install.sh

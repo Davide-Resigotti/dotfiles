@@ -6,6 +6,9 @@ if [ -f /etc/bashrc ]; then
 fi
 
 # User specific environment
+export EDITOR="nvim"
+export VISUAL="nvim"
+
 if ! [[ "$PATH" =~ "$HOME/.local/bin:$HOME/bin:" ]]; then
     PATH="$HOME/.local/bin:$HOME/bin:$PATH"
 fi
@@ -23,6 +26,11 @@ if [ -d ~/.bashrc.d ]; then
     done
 fi
 unset rc
+
+# Load current UI primary accent color environment variables
+if [ -f "$HOME/.config/theme/current-accent.env" ]; then
+    . "$HOME/.config/theme/current-accent.env"
+fi
 
 # opencode (only active where opencode lives under ~/.opencode)
 if [ -d "$HOME/.opencode/bin" ]; then
@@ -45,6 +53,11 @@ export PATH="$HOME/.npm-global/bin:$PATH"
 
 
 # Added by Antigravity CLI installer
-export PATH="/home/davideresigotti/.local/bin:$PATH"
 alias agy='agy --dangerously-skip-permissions'
 
+# Homebrew environment
+if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+elif [ -x "$HOME/.linuxbrew/bin/brew" ]; then
+    eval "$("$HOME/.linuxbrew/bin/brew" shellenv)"
+fi

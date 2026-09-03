@@ -1,0 +1,273 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PALETTES_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/theme/palettes.conf"
+STATE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/theme/current-accent.env"
+NIRI_ACCENT="${XDG_CONFIG_HOME:-$HOME/.config}/niri/accent.kdl"
+WAYBAR_COLORS="${XDG_CONFIG_HOME:-$HOME/.config}/waybar/colors.css"
+WAYBAR_STYLE="${XDG_CONFIG_HOME:-$HOME/.config}/waybar/style.css"
+FUZZEL_ACCENT="${XDG_CONFIG_HOME:-$HOME/.config}/fuzzel/accent.ini"
+GHOSTTY_ACCENT="${XDG_CONFIG_HOME:-$HOME/.config}/ghostty/accent.conf"
+
+usage() {
+    local cur_accent="unknown"
+    local cur_sys="unknown"
+    if [[ -f "$STATE_FILE" ]]; then
+        # shellcheck disable=SC1090
+        source "$STATE_FILE" 2>/dev/null || true
+        cur_accent="${PRIMARY_COLOR:-${ACCENT_NAME:-unknown}}"
+        cur_sys="${SYSTEM_COLOR:-unknown}"
+    fi
+    echo "Usage: set-accent <color-name-or-hex|current>"
+    echo "Current primary color: $cur_accent"
+    echo "Current system color:  $cur_sys"
+    echo
+    echo "Available predefined colors:"
+    if [[ -f "$PALETTES_CONF" ]]; then
+        while IFS='=' read -r name rest; do
+            [[ -z "$name" || "$name" =~ ^# ]] && continue
+            echo "  - $name"
+        done < "$PALETTES_CONF"
+    fi
+    exit 1
+}
+
+[[ $# -lt 1 ]] && usage
+
+INPUT_COLOR="$1"
+
+# If "current", retrieve existing accent name
+if [[ "$INPUT_COLOR" == "current" ]]; then
+    if [[ -f "$STATE_FILE" ]]; then
+        # shellcheck disable=SC1090
+        source "$STATE_FILE" 2>/dev/null || true
+        INPUT_COLOR="${ACCENT_NAME:-orange}"
+    else
+        INPUT_COLOR="orange"
+    fi
+fi
+
+RAW_VAL=""
+NAME=""
+NORM_INPUT="$(echo "$INPUT_COLOR" | tr '[:upper:]' '[:lower:]')"
+
+# Lookup in palettes.conf
+if [[ -f "$PALETTES_CONF" ]]; then
+    while IFS='=' read -r k v; do
+        [[ -z "$k" || "$k" =~ ^# ]] && continue
+        if [[ "$(echo "$k" | tr '[:upper:]' '[:lower:]')" == "$NORM_INPUT" ]]; then
+            RAW_VAL="$v"
+            NAME="$k"
+            break
+        fi
+    done < "$PALETTES_CONF"
+fi
+
+# If input is a hex code (e.g. #3daee9 or 3daee9)
+if [[ -z "$RAW_VAL" && "$NORM_INPUT" =~ ^#?[0-9a-f]{6}$ ]]; then
+    RAW_VAL="${NORM_INPUT#\#}"
+    RAW_VAL="#$RAW_VAL"
+    NAME="custom"
+fi
+
+if [[ -z "$RAW_VAL" ]]; then
+    echo "Error: Unknown color '$INPUT_COLOR'." >&2
+    usage
+fi
+
+# Parse palette fields: PRIMARY_COLOR:SYSTEM_BG:SYSTEM_FG:SYSTEM_FIELD
+IFS=':' read -r HEX BG FG FIELD rest <<< "$RAW_VAL"
+
+# Defaults if not provided
+HEX="${HEX:-#df6124}"
+BG="${BG:-#28201e}"
+FG="${FG:-#dcdfe4}"
+FIELD="${FIELD:-#201918}"
+
+# Format variations
+HEX_NO_HASH="${HEX#\#}"
+HEX_ALPHA="${HEX_NO_HASH}ff"
+
+BG_NO_HASH="${BG#\#}"
+BG_ALPHA="${BG_NO_HASH}f2"   # slight transparency for overlays/popups
+
+FG_NO_HASH="${FG#\#}"
+FG_ALPHA="${FG_NO_HASH}ff"
+
+FIELD_NO_HASH="${FIELD#\#}"
+
+# Convert HEX to RGB
+HEX_R=$((16#${HEX_NO_HASH:0:2}))
+HEX_G=$((16#${HEX_NO_HASH:2:2}))
+HEX_B=$((16#${HEX_NO_HASH:4:2}))
+HEX_RGB="$HEX_R, $HEX_G, $HEX_B"
+
+# Convert BG to RGB
+BG_R=$((16#${BG_NO_HASH:0:2}))
+BG_G=$((16#${BG_NO_HASH:2:2}))
+BG_B=$((16#${BG_NO_HASH:4:2}))
+BG_RGB="$BG_R, $BG_G, $BG_B"
+
+# Ensure target directories exist
+mkdir -p "$(dirname "$STATE_FILE")"
+mkdir -p "$(dirname "$NIRI_ACCENT")"
+mkdir -p "$(dirname "$WAYBAR_COLORS")"
+mkdir -p "$(dirname "$FUZZEL_ACCENT")"
+mkdir -p "$(dirname "$GHOSTTY_ACCENT")"
+
+# 1. Update shared state file (providing primary and system color variables)
+cat << EOF > "$STATE_FILE"
+# Primary Accent Color
+export PRIMARY_COLOR="$HEX"
+export PRIMARY_COLOR_NO_HASH="$HEX_NO_HASH"
+export PRIMARY_COLOR_ALPHA="$HEX_ALPHA"
+export PRIMARY_COLOR_RGB="$HEX_RGB"
+export ACCENT_NAME="$NAME"
+export ACCENT_HEX="$HEX"
+export ACCENT_HEX_NO_HASH="$HEX_NO_HASH"
+export ACCENT_HEX_ALPHA="$HEX_ALPHA"
+export ACCENT_RGB="$HEX_RGB"
+
+# System Base Color (derived from wallpaper / palette)
+export SYSTEM_COLOR="$BG"
+export SYSTEM_COLOR_NO_HASH="$BG_NO_HASH"
+export SYSTEM_COLOR_ALPHA="$BG_ALPHA"
+export SYSTEM_COLOR_RGB="$BG_RGB"
+export SYSTEM_BG="$BG"
+export SYSTEM_BG_NO_HASH="$BG_NO_HASH"
+export SYSTEM_BG_ALPHA="$BG_ALPHA"
+export SYSTEM_FG="$FG"
+export SYSTEM_FIELD="$FIELD"
+EOF
+
+# 2. Update Niri focus-ring config
+printf 'layout {\n    focus-ring {\n        active-color "%s"\n    }\n}\n' "$HEX" > "$NIRI_ACCENT"
+
+# 3. Update Waybar accent & background CSS
+cat << EOF > "$WAYBAR_COLORS"
+@define-color accent $HEX;
+@define-color bg $BG;
+@define-color fg $FG;
+@define-color field $FIELD;
+EOF
+
+# Trigger in-place live Waybar reload without restart/flicker
+REAL_STYLE="$(readlink -f "$WAYBAR_STYLE" 2>/dev/null || echo "$WAYBAR_STYLE")"
+if [[ -f "$REAL_STYLE" ]]; then
+    sed -i "s|^/\* accent-ts:.*|/* accent-ts: $(date +%s%N) */|" "$REAL_STYLE" 2>/dev/null || true
+fi
+
+# 4. Update Fuzzel accent & background config
+cat << EOF > "$FUZZEL_ACCENT"
+[colors]
+background=${BG_ALPHA}
+text=${FG_ALPHA}
+match=${HEX_ALPHA}
+selection=${HEX_NO_HASH}40
+selection-text=${FG_ALPHA}
+selection-match=${HEX_ALPHA}
+border=${HEX_ALPHA}
+EOF
+
+# 5. Update Ghostty dynamic accent configuration
+cat << EOF > "$GHOSTTY_ACCENT"
+background = $BG
+foreground = $FG
+cursor-color = $HEX
+cursor-text = #ffffff
+selection-background = $HEX
+selection-foreground = #ffffff
+
+palette = 0=$FIELD
+palette = 1=#e06c75
+palette = 2=#98c379
+palette = 3=#e5c07b
+palette = 4=#61afef
+palette = 5=#c678dd
+palette = 6=#56b6c2
+palette = 7=#abb2bf
+palette = 8=#5c6370
+palette = 9=#e06c75
+palette = 10=#98c379
+palette = 11=#e5c07b
+palette = 12=#61afef
+palette = 13=#c678dd
+palette = 14=#56b6c2
+palette = 15=#ffffff
+EOF
+
+# Signal running Ghostty instances to reload configuration immediately
+pkill -USR2 ghostty 2>/dev/null || true
+
+
+
+# 6. Update Firefox profiles accent.css
+for pdir in "$HOME/.config/mozilla/firefox/"*.default* "$HOME/.mozilla/firefox/"*.default*; do
+    if [[ -d "$pdir/chrome" ]]; then
+        cat << EOF > "$pdir/chrome/accent.css"
+:root {
+  --theme-bg: $BG;
+  --theme-fg: $FG;
+  --theme-accent: $HEX;
+  --theme-field-bg: $FIELD;
+  --theme-border: rgba(255, 255, 255, 0.12);
+}
+EOF
+    fi
+done
+
+# 6b. Export colors to Pywal cache and trigger Pywalfox live update (no restart needed in Firefox)
+WAL_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/wal"
+mkdir -p "$WAL_CACHE"
+cat << EOF > "$WAL_CACHE/colors.json"
+{
+  "wallpaper": "current",
+  "special": {
+    "background": "$BG",
+    "foreground": "$FG",
+    "cursor": "$HEX"
+  },
+  "colors": {
+    "color0": "$BG",
+    "color1": "$HEX",
+    "color2": "$HEX",
+    "color3": "$HEX",
+    "color4": "$HEX",
+    "color5": "$HEX",
+    "color6": "$HEX",
+    "color7": "$FG",
+    "color8": "$FIELD",
+    "color9": "$HEX",
+    "color10": "$HEX",
+    "color11": "$HEX",
+    "color12": "$HEX",
+    "color13": "$HEX",
+    "color14": "$HEX",
+    "color15": "#ffffff"
+  }
+}
+EOF
+
+if command -v pywalfox &>/dev/null; then
+    pywalfox update &>/dev/null || true
+fi
+
+# 7. Update GNOME/GTK desktop accent-color where supported
+case "$NAME" in
+    blue|teal|green|yellow|orange|red|pink|purple)
+        gsettings set org.gnome.desktop.interface accent-color "$NAME" 2>/dev/null || true
+        ;;
+    cyan)
+        gsettings set org.gnome.desktop.interface accent-color "teal" 2>/dev/null || true
+        ;;
+    gray)
+        gsettings set org.gnome.desktop.interface accent-color "slate" 2>/dev/null || true
+        ;;
+esac
+
+# 8. Notify Niri (Niri also auto-reloads via inotify on included files)
+if command -v niri &>/dev/null; then
+    niri msg action load-config-file &>/dev/null || true
+fi
+
+echo "Updated theme: Primary = $HEX ($NAME) | System Color = $BG"

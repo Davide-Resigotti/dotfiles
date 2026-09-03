@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CURRENT="$(dconf read /org/gnome/desktop/interface/color-scheme 2>/dev/null || echo "'prefer-dark'")"
+if [[ "$CURRENT" == *"prefer-dark"* ]]; then
+    NEW="light"
+else
+    NEW="dark"
+fi
+
+"$HOME/.config/niri/scripts/apply-theme" "$NEW"
