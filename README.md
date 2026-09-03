@@ -56,8 +56,8 @@ cd dotfiles
 Enable user services (logged into the graphical session):
 
 ```sh
-systemctl --user enable --now darkman.service
 systemctl --user enable waybar.service
+systemctl --user enable --now waypaper-power-watcher.service
 ```
 
 Home Assistant toggles need a token after restore (never committed):
@@ -73,12 +73,49 @@ dashboards' URLs are hardcoded in the `.desktop` files under the `theme`
 package — edit them for your network. The Fan/Studio entries call the bare
 `ha-toggle` name, so keep `~/.local/bin` (symlinked by `install.sh`) on PATH.
 
-Themes: darkman is the authority — it turns on dark mode at sundown and light
-again at sunrise. On top of that, `niri/.../scripts/schedule-early-dark` arms
-a one-shot `at(1)` job that runs `darkman set dark` a full hour **before**
-sunset. `apply-theme` does the actual GTK/niri switch; edit lat/lon + timezone
-in `schedule-early-dark` (and `~/.config/darkman/config.yaml`) for your
-location.
+## Dynamic Color & Accent System
+
+The desktop uses a centralized, wallpaper-driven color engine that synchronizes primary accents and matching dark background tones across all desktop environments, terminals, and applications without layout breakage.
+
+### 1. Palette Engine & Shared Variables
+
+Palettes are defined in [`theme/.config/theme/palettes.conf`](file:///home/davideresigotti/dotfiles/theme/.config/theme/palettes.conf) using the format:
+`NAME=PRIMARY_COLOR:SYSTEM_BG:SYSTEM_FG:SYSTEM_FIELD`
+
+| Accent | Primary Color | System Background | System Field |
+|--------|---------------|-------------------|--------------|
+| `orange` | `#df6124` | `#28201e` (warm espresso) | `#201918` |
+| `blue`   | `#3daee9` | `#212634` (midnight navy) | `#1a1e2a` |
+| `purple` | `#a855f7` | `#221d27` (obsidian violet) | `#1c1721` |
+
+Whenever the theme or wallpaper changes, `set-accent <name>` writes:
+- **`~/.config/theme/current-accent.env`**: Sourced in `~/.bashrc` to provide `$PRIMARY_COLOR` and `$SYSTEM_COLOR` variables to all subshells and CLI tools.
+- **`~/.cache/wal/colors.json`**: Provides palette colors for the Pywalfox native messaging bridge.
+
+### 2. Wallpaper & Power-Aware Live Playback
+
+- Wallpapers in `~/Pictures/Wallpapers/` are grouped into folders by color (`Orange/`, `Blue/`, `Purple/`).
+- Press <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> to cycle wallpapers. `set-wallpaper-accent` automatically detects the parent folder and applies the matching palette.
+- **Power Optimization (`power-wallpaper-watcher`)**:
+  - Automatically runs as a background user service (`waypaper-power-watcher.service`).
+  - Monitors hardware power state via `/sys/class/power_supply/*/online` (respects battery charge limiters like 75%).
+  - **Under AC Power**: Plays full 60fps video wallpapers (`.mp4`) with GPU acceleration (`mpvpaper --hwdec=auto --no-audio`).
+  - **On Battery**: Instantly swaps video wallpapers for their high-resolution 4K static frame (`~/.cache/wallpaper-frames/`) and pauses `mpv`, dropping CPU usage to **0.0%**.
+
+### 3. Application Synchronizations
+
+- **Niri**: Focus ring active border updates in real-time via `~/.config/niri/accent.kdl`.
+- **Waybar**: Imports `colors.css` defining `@define-color accent`. Reloads styles seamlessly without restarting.
+- **Ghostty**: Automatically updates the terminal background color (`#221d27`, `#28201e`, etc.) and sends `SIGUSR2` for instant hot-reloading.
+- **Fuzzel**: Includes `accent.ini` to highlight matches and borders with the primary color.
+- **Firefox**:
+  - Configured with a clean vertical-tabs stylesheet (`userChrome.css`) that keeps tabs intact.
+  - Transparent navigation bar and vertical sidebar inherit `--lwt-accent-color` live.
+  - Integrated with **Pywalfox**: `set-accent` triggers `pywalfox update`, changing Firefox's top bar, sidebar, and accents **live while open with zero restarts**.
+- **GTK & Desktop Portal**:
+  - Defaults to `Breeze-Dark` across GTK 3, GTK 4, and `xsettingsd`.
+  - Portal is routed to `gnome;gtk;` to guarantee dark mode across Flatpak and native apps.
+  - Press <kbd>Super</kbd>+<kbd>Space</kbd> and launch **Toggle Theme** (or run `toggle-theme`) to switch between Dark and Light mode on demand.
 
 ## Day-to-day
 
