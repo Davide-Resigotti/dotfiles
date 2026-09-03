@@ -27,9 +27,6 @@ targets root-owned `/etc/keyd`, so `install.sh` needs sudo for it.)
 | `shell`      | `~/.bashrc`, `~/.bash_profile`, `~/.profile`, `~/.gitconfig` | trimmed, machine-agnostic |
 | `wallpapers` | copied to `~/Pictures/Wallpapers` | JPEGs used by `wallpaper-cycle` |
 | `waypaper`   | `~/.config/waypaper` | wallpaper manager config and rotate/cycle scripts |
-| `tmux`       | `~/.config/tmux`     | tmux config (vi mode, keybindings, true color) |
-| `nvim`       | `~/.config/nvim`     | Neovim configuration (Lazy, LSP, diagnostics) |
-| `yazi`       | `~/.config/yazi`     | terminal file manager config and plugins |
 | `keyd`      | copied to `/etc/keyd` (needs root) | keyboard remap: capslock->ctrl/esc |
 
 ## Restore on a new machine (Fedora)

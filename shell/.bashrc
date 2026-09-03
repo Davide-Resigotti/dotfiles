@@ -48,20 +48,3 @@ export PATH="$HOME/.npm-global/bin:$PATH"
 export PATH="/home/davideresigotti/.local/bin:$PATH"
 alias agy='agy --dangerously-skip-permissions'
 
-# Default editor
-export EDITOR="nvim"
-export VISUAL="nvim"
-
-# Yazi shell wrapper (changes cwd on exit)
-y() {
-	local tmp="$(mktemp -t "yazi-cwd.XXXXXX")" cwd
-	yazi "$@" --cwd-file="$tmp"
-	IFS= read -r -d '' cwd < "$tmp"
-	[ -n "$cwd" ] && [ "$cwd" != "$PWD" ] && builtin cd -- "$cwd"
-	rm -f -- "$tmp"
-}
-
-# Zoxide initialization
-if command -v zoxide >/dev/null 2>&1; then
-	eval "$(zoxide init bash)"
-fi

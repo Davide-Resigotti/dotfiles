@@ -11,7 +11,7 @@ if ! command -v stow >/dev/null 2>&1; then
 fi
 
 # Packages -> stow symlinks them into $HOME (e.g. ~/.config/niri -> repo).
-stow -v --restow niri waybar mako fuzzel ghostty fontconfig xsettingsd gtk-3.0 gtk-4.0 autostart shell darkman xdg-desktop-portal theme home-assistant waypaper tmux nvim yazi
+stow -v --restow niri waybar mako fuzzel ghostty fontconfig xsettingsd gtk-3.0 gtk-4.0 autostart shell darkman xdg-desktop-portal theme home-assistant waypaper
 
 # HA toggles (.desktop Exec uses the bare name; needs ~/.local/bin on PATH)
 mkdir -p "$HOME/.local/bin"
