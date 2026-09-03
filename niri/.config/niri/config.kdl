@@ -241,8 +241,8 @@ layout {
 // which may be more convenient to use.
 // See the binds section below for more spawn examples.
 
-spawn-sh-at-startup "sleep 1 && $HOME/.config/niri/scripts/wallpaper-cycle daemon &"
 spawn-sh-at-startup "sleep 1 && $HOME/.config/niri/scripts/schedule-early-dark &"
+spawn-sh-at-startup "sleep 1 && $HOME/.config/waypaper/scripts/waypaper-rotate &"
 spawn-at-startup "niri-copy-paste daemon"
 
 // Waybar is managed by the systemd user service (waybar.service).
@@ -378,6 +378,7 @@ binds {
 
     // Suggested binds for running programs: terminal, app launcher, screen locker.
     Mod+Return hotkey-overlay-title="Open a Terminal: ghostty" { spawn "ghostty"; }
+    Mod+A hotkey-overlay-title="Open opencode" { spawn "ghostty" "-e" "opencode"; }
     Mod+B hotkey-overlay-title="Open Firefox" { spawn "firefox"; }
     Mod+D hotkey-overlay-title="Run an Application: fuzzel" { spawn "fuzzel"; }
 
@@ -394,9 +395,9 @@ binds {
     Mod+T hotkey-overlay-title="Screenshot: Partial" { screenshot; }
     // Bitwarden autotype (works in apps and browsers) — needs bw-autofill installed.
     // Mod+P hotkey-overlay-title="Bitwarden: Username+Password" { spawn "$HOME/.local/bin/bw-autofill"; }
-    Mod+Shift+W hotkey-overlay-title="Next Wallpaper" { spawn-sh "$HOME/.config/niri/scripts/wallpaper-cycle next"; }
     // Mod+Shift+P hotkey-overlay-title="Bitwarden: Password only" { spawn "$HOME/.local/bin/bw-autofill" "--target" "password"; }
     // Mod+Ctrl+P hotkey-overlay-title="Bitwarden: Username only" { spawn "$HOME/.local/bin/bw-autofill" "--target" "username"; }
+    Mod+Shift+W hotkey-overlay-title="Next Wallpaper" { spawn-sh "$HOME/.config/waypaper/scripts/waypaper-cycle-once"; }
 
     // Use spawn-sh to run a shell command. Do this if you need pipes, multiple commands, etc.
     // Note: the entire command goes as a single argument. It's passed verbatim to `sh -c`.

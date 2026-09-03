@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+WAYPAPER="$HOME/.local/bin/waypaper"
+INTERVAL="${WAYPAPER_ROTATE_INTERVAL:-600}"
+
+"$WAYPAPER" --random
+while true; do
+    sleep "$INTERVAL"
+    "$WAYPAPER" --random
+done

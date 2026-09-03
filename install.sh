@@ -11,8 +11,7 @@ if ! command -v stow >/dev/null 2>&1; then
 fi
 
 # Packages -> stow symlinks them into $HOME (e.g. ~/.config/niri -> repo).
-# Run as the regular user, not root.
-stow -v --restow niri waybar mako fuzzel ghostty fontconfig xsettingsd gtk-3.0 gtk-4.0 autostart shell darkman xdg-desktop-portal theme home-assistant
+stow -v --restow niri waybar mako fuzzel ghostty fontconfig xsettingsd gtk-3.0 gtk-4.0 autostart shell darkman xdg-desktop-portal theme home-assistant waypaper tmux nvim yazi
 
 # HA toggles (.desktop Exec uses the bare name; needs ~/.local/bin on PATH)
 mkdir -p "$HOME/.local/bin"
@@ -28,7 +27,7 @@ done
 # keyd config lives in root-owned /etc/keyd, so it's copied (needs sudo).
 if sudo -v; then
     sudo install -D -m 644 keyd/etc/keyd/default.conf /etc/keyd/default.conf
-    sudo install -D -m 644 keyd/etc/keyd/mx-mechanical-mini.conf /etc/keyd/mx-mechanical-mini.conf
+    sudo rm -f /etc/keyd/mx-mechanical-mini.conf
     sudo systemctl try-restart keyd.service
     echo "keyd config installed."
 else
