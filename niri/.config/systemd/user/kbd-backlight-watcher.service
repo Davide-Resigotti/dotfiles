@@ -1,0 +1,13 @@
+[Unit]
+Description=Keyboard Backlight Auto-Sync Watcher
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.config/niri/scripts/kbd-backlight-watcher --daemon
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

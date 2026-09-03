@@ -101,20 +101,28 @@ if command -v python3 >/dev/null 2>&1; then
     fi
 fi
 
-# Enable waypaper-power-watcher service
+# Enable background watcher services
 if command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload >/dev/null 2>&1 || true
     systemctl --user enable --now waypaper-power-watcher.service >/dev/null 2>&1 || true
+    systemctl --user enable --now kbd-backlight-watcher.service >/dev/null 2>&1 || true
 fi
 
-# keyd config lives in root-owned /etc/keyd, so it's copied (needs sudo).
+# keyd config and udev rules live in root-owned /etc, so they're copied (needs sudo).
 if [ "${NONINTERACTIVE:-0}" != "1" ] && sudo -v; then
     sudo install -D -m 644 keyd/etc/keyd/default.conf /etc/keyd/default.conf
     sudo rm -f /etc/keyd/mx-mechanical-mini.conf
     sudo systemctl try-restart keyd.service
     echo "keyd config installed."
+
+    if [ -f niri/etc/udev/rules.d/90-apple-backlight.rules ]; then
+        sudo install -D -m 644 niri/etc/udev/rules.d/90-apple-backlight.rules /etc/udev/rules.d/90-apple-backlight.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger -s backlight -s leds || true
+        echo "backlight & keyboard backlight udev rules installed."
+    fi
 else
-    echo "keyd config NOT installed (sudo unavailable)." >&2
+    echo "root configs NOT installed (sudo unavailable)." >&2
     echo "  Re-run as root: install -D -m 644 keyd/etc/keyd/*.conf /etc/keyd/ && systemctl restart keyd" >&2
 fi
 

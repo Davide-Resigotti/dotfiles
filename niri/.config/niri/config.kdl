@@ -360,6 +360,10 @@ binds {
     XF86AudioMicMute     allow-when-locked=true { spawn-sh "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"; }
     XF86MonBrightnessUp   allow-when-locked=true { spawn-sh "$HOME/.config/niri/scripts/backlight.sh up"; }
     XF86MonBrightnessDown allow-when-locked=true { spawn-sh "$HOME/.config/niri/scripts/backlight.sh down"; }
+    XF86KbdBrightnessUp   allow-when-locked=true { spawn-sh "$HOME/.config/niri/scripts/backlight.sh kbd-up"; }
+    XF86KbdBrightnessDown allow-when-locked=true { spawn-sh "$HOME/.config/niri/scripts/backlight.sh kbd-down"; }
+    Mod+XF86MonBrightnessUp   allow-when-locked=true { spawn-sh "$HOME/.config/niri/scripts/backlight.sh kbd-up"; }
+    Mod+XF86MonBrightnessDown allow-when-locked=true { spawn-sh "$HOME/.config/niri/scripts/backlight.sh kbd-down"; }
 
     // Example media keys mapping using playerctl.
     // This will work with any MPRIS-enabled media player.

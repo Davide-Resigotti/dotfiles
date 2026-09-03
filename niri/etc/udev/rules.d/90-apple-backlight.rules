@@ -1,0 +1,2 @@
+SUBSYSTEM=="backlight", KERNEL=="apple-panel-bl", ACTION=="add|change", RUN+="/bin/chgrp video /sys/class/backlight/%k/brightness", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
+SUBSYSTEM=="leds", KERNEL=="kbd_backlight", ACTION=="add|change", RUN+="/bin/chgrp video /sys/class/leds/%k/brightness", RUN+="/bin/chmod g+w /sys/class/leds/%k/brightness"

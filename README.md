@@ -102,7 +102,18 @@ Whenever the theme or wallpaper changes, `set-accent <name>` writes:
   - **Under AC Power**: Plays full 60fps video wallpapers (`.mp4`) with GPU acceleration (`mpvpaper --hwdec=auto --no-audio`).
   - **On Battery**: Instantly swaps video wallpapers for their high-resolution 4K static frame (`~/.cache/wallpaper-frames/`) and pauses `mpv`, dropping CPU usage to **0.0%**.
 
-### 3. Application Synchronizations
+### 3. Display & Keyboard Backlight Auto-Sync (`kbd-backlight-watcher`)
+
+- **Proportional Threshold Control**:
+  - Managed via user systemd service (`kbd-backlight-watcher.service`) and `~/.config/niri/scripts/backlight.sh`.
+  - **Display < 50%**: Keyboard backlight automatically turns ON and scales **proportionally** to the screen brightness (e.g. 20% screen = 20% keyboard, 40% screen = 40% keyboard).
+  - **Display >= 50%**: Keyboard backlight automatically turns OFF (0).
+- **5% Step Increments**: Screen brightness steps in precise 5% increments (e.g. 5%, 10%, 15%... 50%... 100%).
+- **Keybindings**:
+  - Display Brightness: <kbd>BrightnessUp</kbd> / <kbd>BrightnessDown</kbd> (F1/F2 or `XF86MonBrightnessUp`/`Down`) steps by 5%.
+  - Keyboard Brightness Scale: <kbd>Mod</kbd>+<kbd>BrightnessUp</kbd> / <kbd>Mod</kbd>+<kbd>BrightnessDown</kbd> (or dedicated <kbd>XF86KbdBrightnessUp</kbd>/<kbd>Down</kbd>) fine-tunes the proportionality scale factor.
+
+### 4. Application Synchronizations
 
 - **Niri**: Focus ring active border updates in real-time via `~/.config/niri/accent.kdl`.
 - **Waybar**: Imports `colors.css` defining `@define-color accent`. Reloads styles seamlessly without restarting.
