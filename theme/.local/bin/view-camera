@@ -16,7 +16,6 @@ MPV_OPTS=(
     --demuxer-lavf-analyzeduration=0.5
     --demuxer-lavf-probesize=32768
     --video-sync=desync
-    --no-audio
     --hwdec=no
 )
 
@@ -42,7 +41,7 @@ case "$TARGET" in
             --title="Cameras (Yard & Living Room)" \
             --wayland-app-id=cameras \
             --autofit=40%x70% \
-            --lavfi-complex="[vid1][vid2]vstack[vo]" \
+            --lavfi-complex="[vid1][vid2]vstack[vo];[aid1][aid2]amix[ao]" \
             --external-file="$CAM_LIVING" \
             "$CAM_YARD"
         ;;

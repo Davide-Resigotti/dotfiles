@@ -35,19 +35,6 @@ fi
 # opencode (only active where opencode lives under ~/.opencode)
 if [ -d "$HOME/.opencode/bin" ]; then
     export PATH="$HOME/.opencode/bin:$PATH"
-
-    # Plain `opencode` attaches to the always-running web server.
-    # Standalone subcommands still work (web, serve, ...).
-    opencode() {
-        case "${1:-}" in
-            web|serve|version|upgrade|help|-h|--help|-v|--version)
-                command opencode "$@"
-                ;;
-            *)
-                command opencode attach http://localhost:4096 -p devs --dir "$PWD" "$@"
-                ;;
-        esac
-    }
 fi
 export PATH="$HOME/.npm-global/bin:$PATH"
 

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "homeassistant": {
+      "disabled": true,
+      "serverUrl": "http://homeassistant.local:9583/private_INSERT_TOKEN"
+    }
+  }
+}

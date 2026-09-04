@@ -343,6 +343,14 @@ window-rule {
     open-floating true
 }
 
+// Yard presence popup camera: top-right floating notification popup
+window-rule {
+    match app-id=r#"^camera-yard-popup$"#
+    open-floating true
+    default-floating-position x=24 y=24 relative-to="top-right"
+    open-focused false
+}
+
 window-rule {
     geometry-corner-radius 12
     clip-to-geometry true

@@ -2,10 +2,10 @@
 
 This document serves as the central index and architecture overview for the power and battery optimization systems configured on this laptop.
 
-Detailed documentation for each specialized component is organized in the [`docs/battery-optimization/`](battery-optimization/) directory:
-- [**Wallpaper Power Optimization**](battery-optimization/wallpaper.md)
-- [**Ambient Light Sensor & Backlight Automation**](battery-optimization/display-and-keyboard.md)
-- [**System-Level & Hardware Power Tuning**](battery-optimization/system-level.md)
+Detailed documentation for each specialized component:
+- [**Wallpaper Power Optimization**](wallpaper.md)
+- [**Ambient Light Sensor & Backlight Automation**](display-and-keyboard.md)
+- [**System-Level & Hardware Power Tuning**](system-level.md)
 
 ---
 
@@ -46,12 +46,12 @@ The system continuously balances peak performance on **AC power** with aggressiv
 ## 3. Optimization Domains
 
 ### A. Dynamic Wallpaper Power Management
-- **Full Guide**: [`docs/battery-optimization/wallpaper.md`](battery-optimization/wallpaper.md)
+- **Full Guide**: [`docs/battery-optimization/wallpaper.md`](wallpaper.md)
 - **Summary**: `mpvpaper` is dynamically replaced by `/usr/bin/swaybg` on battery power or when viewing static images. Eliminates 17 background threads, >33,000 context switches/sec, and over 1.3 GB of memory allocations, reducing wallpaper CPU usage to **0.0%**.
 - **Daemon**: `waypaper-power-watcher.service` smoothly extracts 4K static frames from video wallpapers and hot-swaps between video on AC and static image on battery without screen flash.
 
 ### B. Ambient Light Sensor (ALS), Dual-Profile ML & Backlight Automation
-- **Full Guide**: [`docs/battery-optimization/display-and-keyboard.md`](battery-optimization/display-and-keyboard.md)
+- **Full Guide**: [`docs/battery-optimization/display-and-keyboard.md`](display-and-keyboard.md)
 - **Summary**: Uses the Apple Always-On Processor (`aop-sensors-als`) to continuously monitor room lux (sampling takes 18 µs, < 0.02% CPU).
 - **Dual-Profile Machine Learning**: Pure Python Kernel Anchor Spline learns separate curves for AC Power (55% baseline at 485 lux, max visual experience) and Battery (30% baseline at 485 lux, power saver).
 - **Training Window & Waybar Indicator**: Actively learns for 7 days with a dedicated `[ 󰃠 train: 7d ]` indicator in Waybar, then automatically locks in your personalized curves.
@@ -61,7 +61,7 @@ The system continuously balances peak performance on **AC power** with aggressiv
 - **Lid Clamshell & Niri DRM DPMS**: In keep-awake mode (`sleep off`), combines multi-source lid sensing with Niri DRM compositor controls (`niri msg action power-off-monitors` / `output eDP-1 off`), completely cutting panel power to 0.0 W and overcoming Apple DCP hardware minimum iDAC 1% glow.
 
 ### C. System-Level & Hardware Power Tuning
-- **Full Guide**: [`docs/battery-optimization/system-level.md`](battery-optimization/system-level.md)
+- **Full Guide**: [`docs/battery-optimization/system-level.md`](system-level.md)
 - **Summary**:
   - **Hardware Eco Mode**: Automatically enables PCIe ASPM `powersupersave`, Genesys SD Card reader autosuspend (`D3hot`/`D3cold`), and TuneD `power-saver` (`vm.laptop_mode=5`, 15-second writebacks). Interactive toggle in Waybar: `[ 󰍛 hw off ]`.
   - **Dynamic KDE Connect**: Prevents background Wi-Fi UDP discovery broadcasts on battery. Toggleable on demand via Waybar: `[ 󰄡 off ]`.
@@ -124,7 +124,7 @@ The system continuously balances peak performance on **AC power** with aggressiv
 All power optimization configurations are tracked under GNU Stow in `~/dotfiles/`:
 
 - **Documentation**:
-  - `docs/battery-optimization.md` (this index file)
+  - `docs/battery-optimization/README.md` (this index file)
   - `docs/battery-optimization/wallpaper.md`
   - `docs/battery-optimization/display-and-keyboard.md`
   - `docs/battery-optimization/system-level.md`

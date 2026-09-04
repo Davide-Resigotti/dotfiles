@@ -96,6 +96,7 @@ margin-left: 4px;
 #custom-sleep,
 #custom-ml_train,
 #battery,
+#custom-battery,
 #pulseaudio {
   min-width: 12px;
   padding: 0 4px;
@@ -180,7 +181,8 @@ animation: repeat;
     }
 }
 
-#battery.warning {
+#battery.warning,
+#custom-battery.warning {
   color: #c95d0f;
 }
 
@@ -191,7 +193,8 @@ animation: repeat;
   }
 }
 
-#battery.critical:not(.charging):not(.plugged) {
+#battery.critical:not(.charging):not(.plugged),
+#custom-battery.critical:not(.charging):not(.plugged) {
   background-color: transparent;
   color: #e6d8ba;
   animation-name: blink2;

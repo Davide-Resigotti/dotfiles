@@ -54,9 +54,6 @@ fi
 # HA toggles (.desktop Exec uses the bare name; needs ~/.local/bin on PATH)
 ln -sf "$HOME/.config/home-assistant/scripts/ha-toggle" "$HOME/.local/bin/ha-toggle"
 
-# Battery & power optimization reference guide
-ln -sf "$PWD/docs/battery-optimization.md" "$HOME/.config/battery-optimization.md"
-
 # Wallpapers: copied (not symlinked) so ~/Pictures keeps screenshots etc.
 mkdir -p "$HOME/Pictures/Wallpapers"
 cp -rn wallpapers/Pictures/Wallpapers/* "$HOME/Pictures/Wallpapers/" 2>/dev/null || true
@@ -136,6 +133,21 @@ if [ "${NONINTERACTIVE:-0}" != "1" ] && sudo -v; then
 else
     echo "root configs NOT installed (sudo unavailable)." >&2
     echo "  Re-run as root: install -D -m 644 keyd/etc/keyd/*.conf /etc/keyd/ && systemctl restart keyd" >&2
+fi
+
+# Antigravity (agy) MCP: seed the Home Assistant MCP server config from the committed
+# template (agy/mcp_config.json). Copied, never symlinked, so agy owns the live file and
+# the secret URL (serverUrl) never leaks back into this repo. Skips if agy already wrote a
+# non-empty config (e.g. real servers) so we never clobber it.
+AGY_MCP="$HOME/.gemini/config/mcp_config.json"
+if [ -f "agy/mcp_config.json" ]; then
+    mkdir -p "$HOME/.gemini/config"
+    if [ ! -s "$AGY_MCP" ]; then
+        cp "agy/mcp_config.json" "$AGY_MCP"
+        echo "Seeded agy MCP config from agy/mcp_config.json (disabled by default)."
+    elif ! grep -q '"homeassistant"' "$AGY_MCP" 2>/dev/null; then
+        echo "agy MCP config exists without a homeassistant entry — add it manually (see agy/mcp_config.json)." >&2
+    fi
 fi
 
 cat <<'EOF'

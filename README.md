@@ -7,6 +7,9 @@ files as usual; every change is a git change. No copying, no sync step.
 (`keyd` and `wallpapers` are the exceptions: they're copied, not symlinked — `keyd`
 targets root-owned `/etc/keyd`, so `install.sh` needs sudo for it.)
 
+> [!TIP]
+> Comprehensive architectural documentation, hardware tuning guides, and automation manuals are located in [`docs/`](docs/README.md).
+
 ## Packages
 
 | Package      | Symlinks to `$HOME` | Contents |
@@ -74,6 +77,22 @@ dashboards' URLs are hardcoded in the `.desktop` files under the `theme`
 package — edit them for your network. The Fan/Studio entries call the bare
 `ha-toggle` name, so keep `~/.local/bin` (symlinked by `install.sh`) on PATH.
 
+Antigravity (agy) MCP access to Home Assistant via ha-mcp is configured from the
+committed template `agy/mcp_config.json` (kept **disabled** by default to avoid
+token waste; the server URL's secret path is stored as `INSERT_TOKEN`, never the
+real value). `install.sh` seeds `~/.gemini/config/mcp_config.json` from it if
+that file is empty. To activate after a restore, grab a fresh secret URL from
+your ha-mcp server (app logs / custom-component Configure screen), then:
+
+```sh
+# generate a new token/path from your HA-MCP server and substitute it
+sed -i 's#private_INSERT_TOKEN#private_<fresh-secret>#' ~/.gemini/config/mcp_config.json
+agy mcp enable homeassistant   # enable it (agy mcp list to verify)
+```
+
+The live file `~/.gemini/config/mcp_config.json` is **not** a symlink and is
+owned by `agy`, so enabling/updating it never rewrites the repo template.
+
 ## Dynamic Color & Accent System
 
 The desktop uses a centralized, wallpaper-driven color engine that synchronizes primary accents and matching dark background tones across all desktop environments, terminals, and applications without layout breakage.
@@ -109,7 +128,7 @@ Whenever the theme or wallpaper changes, `set-accent <name>` writes:
 
 ### 3. Power & Battery Optimization Architecture
 
-The system features dynamic power management tailored for Apple Silicon (M2 Pro), documented in [`docs/battery-optimization.md`](docs/battery-optimization.md) and organized into dedicated sub-guides in [`docs/battery-optimization/`](docs/battery-optimization/):
+The system features dynamic power management tailored for Apple Silicon (M2 Pro), documented in [`docs/battery-optimization/README.md`](docs/battery-optimization/README.md) and organized into dedicated sub-guides in [`docs/battery-optimization/`](docs/battery-optimization/):
 - [**Wallpaper Power Optimization**](docs/battery-optimization/wallpaper.md)
 - [**Ambient Light Sensor & Backlight Automation**](docs/battery-optimization/display-and-keyboard.md)
 - [**System-Level & Hardware Power Tuning**](docs/battery-optimization/system-level.md)
@@ -156,7 +175,13 @@ The system features dynamic power management tailored for Apple Silicon (M2 Pro)
   - Keyboard Scale: <kbd>Mod</kbd>+<kbd>BrightnessUp</kbd> / <kbd>Mod</kbd>+<kbd>BrightnessDown</kbd> fine-tunes keyboard delta.
   - Toggle Auto-Screen: <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> toggles automatic screen brightness on/off.
 
-### 5. Application Synchronizations
+### 5. RTSP Camera Viewers & Automated Feeds
+
+Low-latency RTSP camera streaming via mpv and automated smart home notification popups:
+- [**RTSP Camera Viewers**](docs/cameras/README.md): Desktop shortcuts, unified runner script (`view-camera`), combined vertical view with PipeWire audio mixing, and Niri centered floating rules.
+- [**Yard Camera Presence Popup Notification**](docs/cameras/yard-presence-popup.md): Automated live-view video notification daemon triggered via Home Assistant & Mosquitto MQTT on occupancy or door events.
+
+### 6. Application Synchronizations
 
 - **Niri**: Focus ring active border updates in real-time via `~/.config/niri/accent.kdl`.
 - **Waybar**: Imports `colors.css` defining `@define-color accent`. Reloads styles seamlessly without restarting.

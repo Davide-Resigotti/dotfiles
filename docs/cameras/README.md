@@ -10,6 +10,9 @@ Live RTSP camera streams accessible directly as Fuzzel applications and CLI shor
 | **Living Room** | `view-camera living-room` | `rtsp://192.168.1.10:554/stream1` | `camera-living-room` |
 | **Cameras** | `view-camera both` | Both streams stacked vertically | `cameras` |
 
+> [!TIP]
+> An automated live-view popup is also available for the Yard camera triggered by Home Assistant presence and door events. See [Yard Camera Presence Popup Notification](yard-presence-popup.md).
+
 ## Usage
 
 - **Via Fuzzel**: Press <kbd>Mod</kbd>+<kbd>D</kbd> (or <kbd>Super</kbd>+<kbd>Space</kbd>), type **Yard**, **Living Room**, or **Cameras**, and press <kbd>Enter</kbd>.
@@ -36,25 +39,27 @@ The `.desktop` launchers in `~/.local/share/applications/` invoke this script di
 - **Zero Quoting Bugs**: Fuzzel's desktop entry parser strictly enforces the FreeDesktop specification (`application.c:85: command line contains non-specification-compliant quoting`). Quotes inside inline CLI arguments (e.g. `--title="Yard"`) cause Fuzzel to reject the entry. Calling a clean runner avoids all quoting and escaping limitations.
 - **Unified Configuration**: Stream URLs, MPV flags, resolutions, and video filters live in one maintainable file.
 
-### 2. Stream Format & Apple Silicon Optimization
+### 2. Stream Format, Audio & Apple Silicon Optimization
 
-- **Codec**: Both cameras broadcast **HEVC (H.265) 2560×1440 at 25 fps** over RTSP.
+- **Video Codec**: Both cameras broadcast **HEVC (H.265) 2560×1440 at 25 fps** over RTSP.
+- **Audio**: Enabled across all views. Yard broadcasts **PCM Mu-law** (`pcm_mulaw` 8 kHz mono) and Living Room broadcasts **PCM A-law** (`pcm_alaw` 8 kHz mono).
 - **Transport (`--rtsp-transport=tcp`)**: Enforces reliable TCP transport to eliminate UDP packet loss and HEVC macroblocking/gray corruption frames on Wi-Fi.
 - **Decoder (`--hwdec=no`)**: The Mesa Honeykrisp Vulkan driver on Apple Silicon (M2 Pro) does not currently expose `VK_KHR_video_decode_queue`. Forcing `--hwdec=no` avoids unnecessary driver probe timeouts and errors, relying on Apple Silicon's high-performance ARM NEON CPU cores (< 1–2% CPU load for 1440p HEVC).
-- **Sync (`--video-sync=desync`)**: Live camera clocks can jitter; `desync` prevents buffer stalls when no audio is rendered.
+- **Sync (`--video-sync=desync`)**: Live camera clocks can jitter; `desync` prevents buffer stalls.
 
 ### 3. Combined Vertical View (Cameras)
 
-The **Cameras** view uses mpv's `--lavfi-complex` filter graph with FFmpeg's `vstack` filter to stack both 16:9 streams into a single window:
+The **Cameras** view uses mpv's `--lavfi-complex` filter graph with FFmpeg's `vstack` and `amix` filters to stack both 16:9 video streams and mix both audio feeds into a single window:
 
 ```bash
-mpv --lavfi-complex="[vid1][vid2]vstack[vo]" \
+mpv --lavfi-complex="[vid1][vid2]vstack[vo];[aid1][aid2]amix[ao]" \
     --external-file="rtsp://192.168.1.10:554/stream1" \
     "rtsp://192.168.1.206:554/stream1"
 ```
 
-- `vid1` = Yard (primary input, top half)
-- `vid2` = Living Room (`--external-file`, bottom half)
+- `vid1` / `aid1` = Yard (primary input, top half video, audio input 1)
+- `vid2` / `aid2` = Living Room (`--external-file`, bottom half video, audio input 2)
+- Audio feeds from both cameras are concurrently mixed into PipeWire without clipping or latency penalty.
 
 ### 4. Window Sizing & Vertical Aspect Ratio
 

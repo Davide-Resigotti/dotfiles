@@ -469,12 +469,13 @@ generate_docs_menu() {
 
     # Priority curated entries with clear, descriptive titles
     local -a curated=(
-        "$HOME/dotfiles/docs/battery-optimization.md|Battery & Power Overview"
+        "$HOME/dotfiles/docs/battery-optimization/README.md|Battery & Power Overview"
         "$HOME/dotfiles/docs/battery-optimization/display-and-keyboard.md|Display & Keyboard ALS"
         "$HOME/dotfiles/docs/battery-optimization/wallpaper.md|Dynamic Wallpaper Power"
         "$HOME/dotfiles/docs/battery-optimization/system-level.md|Hardware & System Tuning"
-        "$HOME/.config/niri/cameras.md|RTSP Camera Viewers"
-        "$HOME/dotfiles/niri/.config/niri/cameras.md|RTSP Camera Viewers"
+        "$HOME/dotfiles/docs/cameras/README.md|RTSP Camera Viewers"
+        "$HOME/dotfiles/docs/cameras/yard-presence-popup.md|Yard Camera Presence Popup"
+        "$HOME/dotfiles/docs/README.md|Documentation Hub"
         "$HOME/dotfiles/README.md|Dotfiles & System Guide"
     )
 
