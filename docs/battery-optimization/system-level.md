@@ -108,10 +108,13 @@ Closing the laptop lid triggers `systemd-logind`'s `HandleLidSwitch=suspend` by 
 - **Inhibition Mechanism**: Uses `systemd-inhibit` with `--what=handle-lid-switch` running as a user service (`deep-sleep-inhibit.service`). Systemd-logind always honors low-level inhibitor locks (`handle-lid-switch`), even for unprivileged user sessions without requiring sudo.
 - **Display & Backlight Handling**:
   - When the inhibitor is active and the lid closes, `systemd-logind` skips suspend.
-  - Niri automatically disables and blanks the internal laptop monitor (`eDP-1`).
-  - `kbd-backlight-watcher` detects the lid angle closure (`<= 0°`) and shuts off the keyboard backlight.
+  - On lid closure, `is_lid_closed()` (synthesizing LAS angle $\le 3^\circ$, logind D-Bus, UPower D-Bus, and runtime state file) detects the event.
+  - To prevent Apple Silicon's DCP hardware from clamping to a minimum 1% residual glow (~1–2 nits) when brightness is zeroed, the system issues a Niri DRM command:
+    - **Standalone mode**: `niri msg action power-off-monitors` sends full DRM DPMS suspend, dropping display draw to 0.0 W.
+    - **Clamshell mode** (external monitor attached): `niri msg output eDP-1 off` unbinds only the laptop panel, keeping external monitors fully functional.
+  - Keyboard backlight is hard-zeroed and auto-adjustments are strictly blocked while closed.
   - All CPU cores, network interfaces, and user background tasks continue running at full speed.
-  - When the lid opens, Niri re-enables the panel and `kbd-backlight-watcher` restores illumination.
+  - When the lid opens, `niri msg action power-on-monitors` and `niri msg output eDP-1 on` restore the display, and `kbd-backlight-watcher` resumes smooth illumination.
 - **Waybar Integration (`custom/sleep`)**:
   - Positioned on the left side of Waybar: `[ 󰒲 sleep on ]` / `[ 󰒲 sleep off ]`.
   - Follows the same visual pattern as the KDE toggle: accented with primary color (`@accent`) when enabled (`sleep-on`), and dimmed (`opacity: 0.5`) when disabled (`sleep-off`).

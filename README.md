@@ -22,7 +22,7 @@ targets root-owned `/etc/keyd`, so `install.sh` needs sudo for it.)
 | `fontconfig` | `~/.config/fontconfig` | font aliases (Nerd Font -> Cascadia Code NF) |
 | `darkman`    | `~/.config/darkman`, `~/.local/share/darkman` | darkman config (fixed Milan coords) + transition hook |
 | `xdg-desktop-portal` | `~/.config/xdg-desktop-portal` | XDG desktop portal configuration |
-| `theme`     | `~/.config/theme`, `~/.local/bin/set-accent`, `~/.local/bin/toggle-theme`, `~/.local/share/applications` | Dynamic primary & system color accent dispatcher, Fuzzel & Wofi theme toggle, and app launcher shortcuts |
+| `theme`     | `~/.config/theme`, `~/.local/bin/set-accent`, `~/.local/bin/toggle-theme`, `~/.local/share/applications` | Dynamic primary & system color accent dispatcher, Fuzzel & Wofi theme toggle, RTSP camera launchers, and app launcher shortcuts |
 | `home-assistant` | `~/.config/home-assistant/scripts` | `ha-toggle <entity>` — toggles a HA entity via the local REST API (token read from `~/.config/home-assistant/token`) |
 | `autostart`  | `~/.config/autostart` | XWayland video bridge, daemon autostart overrides (`geoclue`, `kunifiedpush`, `sealertauto`) |
 | `shell`      | `~/.bashrc`, `~/.bash_profile`, `~/.profile`, `~/.gitconfig`, `~/.local/bin/apply-hardware-power-tuning` | exports system color and accent variables, hardware power tuning installer |
@@ -136,20 +136,22 @@ The system features dynamic power management tailored for Apple Silicon (M2 Pro)
 *(Detailed guide: [`docs/battery-optimization/display-and-keyboard.md`](docs/battery-optimization/display-and-keyboard.md))*
 
 - **Hardware Ambient Light Sensor (ALS)**:
-  - Continuously samples the room illuminance via Apple Silicon's ultra-low-power AOP sensor (`aop-sensors-als`).
+  - Continuously samples room illuminance via Apple Silicon's ultra-low-power AOP sensor (`aop-sensors-als`).
   - Native sysfs read overhead is just **18 microseconds** (< 0.005% CPU); saving power by turning off LEDs in daytime.
-- **Keyboard Backlight**:
-  - **In Bright Light (> 55 lux)**: Automatically turns **OFF** (`0/255`), eliminating power waste when keys are already visible.
-  - **In Dim/Dark Light (< 30 lux)**: Automatically turns **ON** and scales proportionally to the display brightness.
-  - **Hysteresis & Clamshell Detection**: Hysteresis between 30 and 55 lux eliminates jitter. If the MacBook lid is closed, the keyboard backlight is always forced off.
-- **Screen Auto-Brightness (`auto_screen = true`)**:
-  - Maps ambient lux to optimal screen brightness using a smooth perceptual (logarithmic) curve in 5% increments.
-  - **User Bias**: Pressing <kbd>F1</kbd>/<kbd>F2</kbd> shifts your personal preference offset ($+5\% / -5\%$) across the entire ambient curve without fighting the daemon.
-- **Configuration (`~/.config/niri/ambient.conf`)**:
-  - Customize `kbd_lux_dark`, `kbd_lux_bright`, `auto_screen`, `screen_min_pct`, `screen_max_pct`, and `poll_interval`.
+- **Dual-Profile Machine Learning**:
+  - Automatically adapts separate curves for **Battery** (30% baseline at 485 lux, power saver) and **AC Power** (55% baseline at 485 lux, max visual quality).
+  - Learns from manual <kbd>F1</kbd>/<kbd>F2</kbd> adjustments during an active 7-day training window, indicated by `[ 󰃠 train: 7d ]` in Waybar, then locks curves to prevent drift.
+  - Glides smoothly in **0.5% steps** every 50ms across ambient changes and charger plug/unplug events.
+- **Continuous Keyboard Backlight**:
+  - **Battery**: Smoothly fades to completely **OFF (0%) above 15 lux** using cubic Hermite smoothstep fade; capped at **50% max** to eliminate battery drain.
+  - **AC Power**: Fades to **OFF above 35 lux**; capped at **75% max**.
+  - **Soft Glide Ramping**: Transitions brightness 1 unit every 30ms over ~1.5–2.0s without sudden flickers.
+- **Lid Clamshell & Niri DRM DPMS**:
+  - Multi-source `is_lid_closed()` evaluates LAS angle $\le 3^\circ$, systemd-logind D-Bus, UPower D-Bus, and runtime state file.
+  - In keep-awake mode (`[ 󰒲 sleep off ]`), issues Niri DRM output commands (`niri msg action power-off-monitors` or `output eDP-1 off`), completely eliminating Apple Silicon's hardware DCP 1% glow and cutting panel draw to 0.0 W.
 - **Keybindings**:
-  - Display Brightness: <kbd>F1</kbd> / <kbd>F2</kbd> (or `XF86MonBrightnessDown`/`Up`) steps by 5% and shifts ambient bias.
-  - Keyboard Scale: <kbd>Mod</kbd>+<kbd>BrightnessUp</kbd> / <kbd>Mod</kbd>+<kbd>BrightnessDown</kbd> fine-tunes keyboard intensity.
+  - Display Brightness: <kbd>F1</kbd> / <kbd>F2</kbd> (steps by 5% and trains active ML profile).
+  - Keyboard Scale: <kbd>Mod</kbd>+<kbd>BrightnessUp</kbd> / <kbd>Mod</kbd>+<kbd>BrightnessDown</kbd> fine-tunes keyboard delta.
   - Toggle Auto-Screen: <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> toggles automatic screen brightness on/off.
 
 ### 5. Application Synchronizations
@@ -157,7 +159,7 @@ The system features dynamic power management tailored for Apple Silicon (M2 Pro)
 - **Niri**: Focus ring active border updates in real-time via `~/.config/niri/accent.kdl`.
 - **Waybar**: Imports `colors.css` defining `@define-color accent`. Reloads styles seamlessly without restarting.
 - **Ghostty**: Automatically updates the terminal background color (`#221d27`, `#28201e`, etc.) and sends `SIGUSR2` for instant hot-reloading.
-- **Fuzzel**: Includes `accent.ini` to highlight matches and borders with the primary color.
+- **Fuzzel**: Includes `accent.ini` to dynamically synchronize background color, text, matches, and borders with the system theme.
 - **Firefox**:
   - Configured with a clean vertical-tabs stylesheet (`userChrome.css`) that keeps tabs intact.
   - Transparent navigation bar and vertical sidebar inherit `--lwt-accent-color` live.

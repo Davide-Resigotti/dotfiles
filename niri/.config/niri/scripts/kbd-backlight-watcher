@@ -49,6 +49,9 @@ SMOOTHED_LUX_FILE = os.path.join(STATE_DIR, "ambient_lux_smoothed")
 SAVED_BRIGHTNESS_FILE = os.path.join(
     os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "saved-screen-brightness"
 )
+LID_STATE_FILE = os.path.join(
+    os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "lid-closed"
+)
 
 # Default settings
 DEFAULT_CONFIG = {
@@ -209,10 +212,30 @@ def is_deep_sleep_inhibited():
         return False
 
 
+def find_iio_sensor_path(sensor_type, attr_name):
+    """Dynamically finds sysfs attribute for an IIO sensor ('las' or 'als')."""
+    for dev in sorted(glob.glob("/sys/bus/iio/devices/iio:device*")):
+        name_file = os.path.join(dev, "name")
+        attr_file = os.path.join(dev, attr_name)
+        if os.path.isfile(name_file) and os.path.isfile(attr_file):
+            try:
+                with open(name_file, "r") as f:
+                    if sensor_type in f.read().lower():
+                        return attr_file
+            except Exception:
+                pass
+    for dev in sorted(glob.glob("/sys/bus/iio/devices/iio:device*")):
+        attr_file = os.path.join(dev, attr_name)
+        if os.path.isfile(attr_file):
+            return attr_file
+    return None
+
+
 def get_raw_lux():
+    als_path = find_iio_sensor_path("als", "in_illuminance_input") or ALS_PATH
     try:
-        if os.path.isfile(ALS_PATH):
-            with open(ALS_PATH, "r") as f:
+        if os.path.isfile(als_path):
+            with open(als_path, "r") as f:
                 return float(f.read().strip())
     except Exception:
         pass
@@ -243,12 +266,123 @@ def save_smoothed_lux(val):
 
 
 def get_lid_angle():
+    las_path = find_iio_sensor_path("las", "in_angl_raw") or LAS_PATH
     try:
-        if os.path.isfile(LAS_PATH):
-            with open(LAS_PATH, "r") as f:
+        if os.path.isfile(las_path):
+            with open(las_path, "r") as f:
                 return int(f.read().strip())
     except Exception:
         pass
+    return None
+
+
+def is_logind_lid_closed():
+    """Queries systemd-logind via busctl for LidClosed state."""
+    try:
+        res = subprocess.run(
+            [
+                "busctl",
+                "get-property",
+                "org.freedesktop.login1",
+                "/org/freedesktop/login1",
+                "org.freedesktop.login1.Manager",
+                "LidClosed",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=0.15,
+            check=False,
+        )
+        if res.returncode == 0:
+            return "true" in res.stdout.lower()
+    except Exception:
+        pass
+    return None
+
+
+def is_upower_lid_closed():
+    """Queries UPower via busctl for LidIsClosed state."""
+    try:
+        res = subprocess.run(
+            [
+                "busctl",
+                "get-property",
+                "org.freedesktop.UPower",
+                "/org/freedesktop/UPower",
+                "org.freedesktop.UPower",
+                "LidIsClosed",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=0.15,
+            check=False,
+        )
+        if res.returncode == 0:
+            return "true" in res.stdout.lower()
+    except Exception:
+        pass
+    return None
+
+
+def is_lid_closed():
+    """
+    Multi-source robust lid closure detection:
+    1. Angle sensor: if clearly open (> 10°), cleans up stale flag and returns False.
+    2. Angle sensor: if <= 3°, lid is physically closed.
+    3. Runtime state flag: set on Niri lid-close event.
+    4. systemd-logind Manager.LidClosed via D-Bus.
+    5. UPower LidIsClosed via D-Bus.
+    """
+    angle = get_lid_angle()
+
+    # If angle sensor indicates lid is clearly open, clean up stale state flag
+    if angle is not None and angle > 10:
+        if os.path.isfile(LID_STATE_FILE):
+            try:
+                os.remove(LID_STATE_FILE)
+            except Exception:
+                pass
+        return False
+
+    # Check physical lid angle threshold (resting closed angle typically 0-3°)
+    if angle is not None and angle <= 3:
+        return True
+
+    # Check runtime flag file created on lid-close event
+    if os.path.isfile(LID_STATE_FILE):
+        return True
+
+    # Check logind lid state
+    logind_closed = is_logind_lid_closed()
+    if logind_closed is True:
+        return True
+
+    # Check UPower lid state
+    upower_closed = is_upower_lid_closed()
+    if upower_closed is True:
+        return True
+
+    return False
+
+
+def save_display_brightness(val):
+    if val and val > 0:
+        try:
+            with open(SAVED_BRIGHTNESS_FILE, "w") as f:
+                f.write(f"{val}\n")
+        except Exception:
+            pass
+
+
+def get_saved_display_brightness():
+    if os.path.isfile(SAVED_BRIGHTNESS_FILE):
+        try:
+            with open(SAVED_BRIGHTNESS_FILE, "r") as f:
+                val = int(f.read().strip())
+                if val > 0:
+                    return val
+        except Exception:
+            pass
     return None
 
 
@@ -264,6 +398,9 @@ def get_display_brightness():
 
 
 def set_display_brightness(val):
+    # Absolute safeguard: NEVER illuminate screen when lid is closed
+    if is_lid_closed() and val > 0:
+        return False
     try:
         with open(os.path.join(BL_PATH, "brightness"), "w") as f:
             f.write(f"{val}\n")
@@ -284,6 +421,10 @@ def get_kbd_brightness():
 
 
 def set_kbd_brightness(val):
+    # Absolute safeguard: NEVER illuminate keyboard when lid is closed
+    if is_lid_closed() and val > 0:
+        val = 0
+
     _, max_b = get_kbd_brightness()
     max_b = max_b or 255
     val = max(0, min(val, max_b))
@@ -338,6 +479,9 @@ def ramp_kbd_brightness(start_val, target_val, cfg=None):
     direction = 1 if target_val > start_val else -1
     cur = start_val
     while abs(target_val - cur) >= step:
+        if is_lid_closed() and target_val > 0:
+            set_kbd_brightness(0)
+            return
         cur += direction * step
         set_kbd_brightness(cur)
         time.sleep(interval)
@@ -352,18 +496,20 @@ def smoothstep(edge0, edge1, x):
     return t * t * (3.0 - 2.0 * t)
 
 
-def compute_kbd_target(lux, disp_cur, disp_max, cfg, is_ac_power, lid_angle):
+def compute_kbd_target(lux, disp_cur, disp_max, cfg, is_ac_power, lid_angle=None):
     """
     Computes smooth, continuous keyboard backlight target (0-255).
-    - Clamshell: 0 when lid closed.
+    - Clamshell / Lid closed: 0 when lid closed.
+    - Screen off: 0 when display brightness <= 0.
     - Battery: Turns completely OFF in dim rooms (> 15 lux) where keys are visible.
     - AC Power: Turns completely OFF in moderate rooms (> 35 lux).
     - Power Cap: respects max 50% on Battery and 75% on AC.
     """
-    if lid_angle is not None and lid_angle <= 0:
+    if is_lid_closed():
         return 0
     if disp_cur is None or disp_cur <= 0:
         return 0
+
 
     kbd_max = 255
     if is_ac_power:
@@ -455,6 +601,9 @@ def record_manual_adjustment(val):
             json.dump(payload, f, indent=2)
     except Exception:
         pass
+
+    if is_lid_closed():
+        return
 
     # Seamlessly adapt keyboard backlight to match user's new screen brightness
     cfg = load_config()
@@ -551,7 +700,7 @@ class AmbientBacklightManager:
     def ramp_display(self, start_val, target_val, disp_max, smoothed_lux, lid_angle, is_ac):
         """
         Gradual smooth transition stepping screen and keyboard in tandem.
-        Aborts immediately if user presses manual brightness keys.
+        Aborts immediately if user closes lid or presses manual brightness keys.
         """
         step_units = max(1.0, disp_max * (self.cfg["ramp_step_pct"] / 100.0))
         interval = max(0.01, self.cfg["ramp_interval_ms"] / 1000.0)
@@ -561,6 +710,12 @@ class AmbientBacklightManager:
         initial_adj_ts = get_last_adjustment_timestamp()
 
         while self.running and abs(target_val - current) >= 1.0:
+            # Abort ramp immediately if user closed lid
+            if is_lid_closed():
+                set_display_brightness(0)
+                set_kbd_brightness(0)
+                break
+
             # Abort ramp immediately if user pressed brightness keys
             if get_last_adjustment_timestamp() != initial_adj_ts:
                 break
@@ -614,18 +769,14 @@ class AmbientBacklightManager:
                 check=False,
             )
 
-        # --- 0. Lid Closed Awareness (Zero conflict with Deep Sleep) ---
-        if lid_angle is not None and lid_angle <= 0:
+        # --- 0. Lid Closed Awareness (Screen and keyboard MUST stay off while lid is closed) ---
+        if is_lid_closed():
             self.lid_was_closed = True
             if disp_cur is not None and disp_cur > 0:
                 self.saved_disp_before_lid = disp_cur
-                try:
-                    with open(SAVED_BRIGHTNESS_FILE, "w") as f:
-                        f.write(f"{disp_cur}\n")
-                except Exception:
-                    pass
+                save_display_brightness(disp_cur)
                 set_display_brightness(0)
-            if kbd_cur != 0:
+            if kbd_cur is not None and kbd_cur != 0:
                 set_kbd_brightness(0)
             return 0, 0
 
@@ -633,6 +784,21 @@ class AmbientBacklightManager:
         if self.lid_was_closed:
             self.lid_was_closed = False
             ramp_screen = False
+            try:
+                subprocess.run(
+                    ["niri", "msg", "action", "power-on-monitors"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+                subprocess.run(
+                    ["niri", "msg", "output", "eDP-1", "on"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            except Exception:
+                pass
 
         # --- 1. Screen Brightness Auto-Adjust (Adaptive ML Dual Profile) ---
         if self.cfg["auto_screen"] and smoothed_lux is not None and disp_cur is not None:
@@ -644,26 +810,27 @@ class AmbientBacklightManager:
                 )
                 target_val = round((target_pct / 100.0) * disp_max)
 
-                # Deadband threshold to avoid hunting on micro-lux changes (~1.0% = 5 units)
-                deadband = max(2, round(disp_max * 0.01))
-                if abs(target_val - disp_cur) > deadband:
-                    if ramp_screen and self.cfg.get("smooth_ramp", True):
-                        self.ramp_display(
-                            disp_cur, target_val, disp_max, smoothed_lux, lid_angle, current_ac
-                        )
-                        disp_cur, _ = get_display_brightness()
-                    else:
-                        set_display_brightness(target_val)
-                        disp_cur = target_val
+                # If display is currently at 0 (e.g. lid just opened), restore target immediately
+                if disp_cur == 0:
+                    set_display_brightness(target_val)
+                    disp_cur = target_val
+                else:
+                    # Deadband threshold to avoid hunting on micro-lux changes (~1.0% = 5 units)
+                    deadband = max(2, round(disp_max * 0.01))
+                    if abs(target_val - disp_cur) > deadband:
+                        if ramp_screen and self.cfg.get("smooth_ramp", True):
+                            self.ramp_display(
+                                disp_cur, target_val, disp_max, smoothed_lux, lid_angle, current_ac
+                            )
+                            disp_cur, _ = get_display_brightness()
+                        else:
+                            set_display_brightness(target_val)
+                            disp_cur = target_val
         elif disp_cur == 0:
             # Screen is at 0 (e.g. lid just opened or woke from sleep): restore
             restore_val = getattr(self, "saved_disp_before_lid", None)
-            if not restore_val and os.path.isfile(SAVED_BRIGHTNESS_FILE):
-                try:
-                    with open(SAVED_BRIGHTNESS_FILE, "r") as f:
-                        restore_val = int(f.read().strip())
-                except Exception:
-                    pass
+            if not restore_val:
+                restore_val = get_saved_display_brightness()
             if not restore_val:
                 restore_val = round(
                     (self.model.predict(smoothed_lux or 485.0, profile=profile) / 100.0) * disp_max
@@ -677,7 +844,7 @@ class AmbientBacklightManager:
         )
 
         if kbd_cur != target_kbd:
-            if lid_angle is not None and lid_angle <= 0:
+            if is_lid_closed():
                 set_kbd_brightness(0)
             elif abs(target_kbd - kbd_cur) > 1 and self.cfg.get("smooth_ramp", True):
                 ramp_kbd_brightness(kbd_cur, target_kbd, self.cfg)
@@ -688,6 +855,13 @@ class AmbientBacklightManager:
 
 
 def sync_all():
+    if is_lid_closed():
+        disp_cur, _ = get_display_brightness()
+        if disp_cur is not None and disp_cur > 0:
+            save_display_brightness(disp_cur)
+        set_display_brightness(0)
+        set_kbd_brightness(0)
+        return
     adj = get_last_adjustment()
     if adj:
         adj["synced"] = True
@@ -698,6 +872,74 @@ def sync_all():
             pass
     mgr = AmbientBacklightManager()
     mgr.sync(ramp_screen=False)
+
+
+def handle_lid_close():
+    try:
+        os.makedirs(os.path.dirname(LID_STATE_FILE), exist_ok=True)
+        with open(LID_STATE_FILE, "w") as f:
+            f.write(f"{time.time()}\n")
+    except Exception:
+        pass
+    disp_cur, _ = get_display_brightness()
+    if disp_cur is not None and disp_cur > 0:
+        save_display_brightness(disp_cur)
+    set_display_brightness(0)
+    set_kbd_brightness(0)
+    # Fully power down internal display via Niri so panel does not glow at 1%
+    try:
+        res = subprocess.run(
+            ["niri", "msg", "-j", "outputs"],
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+            check=False,
+        )
+        if res.returncode == 0:
+            data = json.loads(res.stdout)
+            has_external = any("eDP" not in k for k in data.keys())
+            if has_external:
+                subprocess.run(
+                    ["niri", "msg", "output", "eDP-1", "off"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            else:
+                subprocess.run(
+                    ["niri", "msg", "action", "power-off-monitors"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+    except Exception:
+        pass
+
+
+def handle_lid_open():
+    if os.path.isfile(LID_STATE_FILE):
+        try:
+            os.remove(LID_STATE_FILE)
+        except Exception:
+            pass
+    try:
+        subprocess.run(
+            ["niri", "msg", "action", "power-on-monitors"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        subprocess.run(
+            ["niri", "msg", "output", "eDP-1", "on"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except Exception:
+        pass
+    sync_all()
+
+
 
 
 def print_status():
@@ -731,13 +973,13 @@ def print_status():
     disp_pct = f"{(disp_cur * 100 // disp_max)}%" if (disp_cur is not None and disp_max) else "unknown"
     kbd_pct = f"{(kbd_cur * 100 // kbd_max)}%" if (kbd_cur is not None and kbd_max) else "unknown"
 
+    lid_closed = is_lid_closed()
+    lid_info = "Closed (Display & Keyboard Off)" if lid_closed else (f"{lid_angle}°" if lid_angle is not None else "Open")
     print("=== Ambient & Backlight Status ===")
     print(f"Power Supply:         {'AC Connected (Optimal Experience)' if current_ac else 'Battery Discharging (Power Saver)'}")
     print(f"Ambient Light:        {smoothed_lux:.1f} lux (raw: {raw_lux:.1f} lux)" if (smoothed_lux is not None and raw_lux is not None) else "Ambient Light:        Not Available")
     print(
-        f"Lid Angle:            {lid_angle}° (Sleep Mode: {'Active Tasks (keep awake, dim to 0%)' if inhibited else 'Battery Saving (deep sleep on close)'})"
-        if lid_angle is not None
-        else "Lid Angle:            Not Available"
+        f"Lid State:            {lid_info} (Sleep Mode: {'Active Tasks (keep awake, dim to 0%)' if inhibited else 'Battery Saving (deep sleep on close)'})"
     )
     print(f"Display:              {disp_cur}/{disp_max} ({disp_pct})")
     print(f"Keyboard:             {kbd_cur}/{kbd_max} ({kbd_pct}) [Target: {target_kbd}/{kbd_max}]")
@@ -857,6 +1099,15 @@ def run_daemon():
             end_time = time.time() + poll_interval
             while mgr.running and time.time() < end_time:
                 time.sleep(0.25)
+                if is_lid_closed():
+                    disp_cur, _ = get_display_brightness()
+                    if disp_cur is not None and disp_cur > 0:
+                        save_display_brightness(disp_cur)
+                        set_display_brightness(0)
+                    kbd_cur, _ = get_kbd_brightness()
+                    if kbd_cur is not None and kbd_cur > 0:
+                        set_kbd_brightness(0)
+                    break
                 mgr.check_and_learn_manual_adjustment()
         except Exception:
             time.sleep(2.0)
@@ -896,6 +1147,8 @@ def main():
         "--kbd-set", type=int, metavar="VAL", help="Set keyboard brightness directly (0-255)"
     )
     group.add_argument("--kbd-toggle", action="store_true", help="Toggle keyboard backlight on/off")
+    group.add_argument("--lid-close", action="store_true", help="Handle lid close event (force display and keyboard off)")
+    group.add_argument("--lid-open", action="store_true", help="Handle lid open event (restore display and keyboard)")
 
     # Backward-compatible bias flags
     group.add_argument("--bias-up", action="store_true", help=argparse.SUPPRESS)
@@ -956,6 +1209,10 @@ def main():
         else:
             sync_all()
             print("Keyboard backlight smoothly faded ON")
+    elif args.lid_close:
+        handle_lid_close()
+    elif args.lid_open:
+        handle_lid_open()
     elif args.bias_up or args.bias_down or args.bias_reset:
         sync_all()
     else:
@@ -964,3 +1221,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -62,22 +62,48 @@ case "${1:-}" in
         "$DIR/kbd-backlight-watcher" --sync
         ;;
     lid-close)
-        # Check if deep sleep inhibitor is active (deep sleep mode OFF / active tasks running)
-        if systemctl --user is-active --quiet deep-sleep-inhibit.service 2>/dev/null || \
-           pgrep -f "systemd-inhibit.*handle-lid-switch.*Waybar" >/dev/null 2>&1; then
-            # Dim screen and keyboard to 0% while lid is closed
-            SAVED_FILE="${XDG_RUNTIME_DIR:-/tmp}/saved-screen-brightness"
-            if [ "$cur" -gt 0 ]; then
-                printf '%s\n' "$cur" > "$SAVED_FILE"
-            fi
-            printf '0\n' > "$BL/brightness"
-            "$DIR/kbd-backlight-watcher" --kbd-set 0 >/dev/null 2>&1 || true
+        # Screen and keyboard backlight MUST turn off and remain off while lid is closed
+        SAVED_FILE="${XDG_RUNTIME_DIR:-/tmp}/saved-screen-brightness"
+        LID_STATE_FILE="${XDG_RUNTIME_DIR:-/tmp}/lid-closed"
+        touch "$LID_STATE_FILE" 2>/dev/null || true
+        if [ "$cur" -gt 0 ]; then
+            printf '%s\n' "$cur" > "$SAVED_FILE"
         fi
-        # If deep sleep mode is ON (not inhibited), logind will automatically suspend the laptop
+        printf '0\n' > "$BL/brightness"
+
+        # Turn off internal display completely so panel does not glow at minimum 1%
+        has_ext=$(niri msg -j outputs 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    print(1 if any("eDP" not in k for k in d.keys()) else 0)
+except Exception:
+    print(0)
+' 2>/dev/null || echo 0)
+
+        if [ "$has_ext" = "1" ]; then
+            # Clamshell mode with external display: disable only eDP-1
+            niri msg output eDP-1 off >/dev/null 2>&1 || true
+        else
+            # Standalone: power off monitors via DPMS
+            niri msg action power-off-monitors >/dev/null 2>&1 || true
+        fi
+
+        "$DIR/kbd-backlight-watcher" --lid-close >/dev/null 2>&1 || {
+            "$DIR/kbd-backlight-watcher" --kbd-set 0 >/dev/null 2>&1 || true
+        }
         ;;
     lid-open)
+        # Restore screen and keyboard backlight on lid open
         SAVED_FILE="${XDG_RUNTIME_DIR:-/tmp}/saved-screen-brightness"
-        "$DIR/kbd-backlight-watcher" --sync >/dev/null 2>&1 || {
+        LID_STATE_FILE="${XDG_RUNTIME_DIR:-/tmp}/lid-closed"
+        rm -f "$LID_STATE_FILE" 2>/dev/null || true
+
+        # Re-enable display and power on via Niri
+        niri msg action power-on-monitors >/dev/null 2>&1 || true
+        niri msg output eDP-1 on >/dev/null 2>&1 || true
+
+        "$DIR/kbd-backlight-watcher" --lid-open >/dev/null 2>&1 || {
             if [ -f "$SAVED_FILE" ]; then
                 saved=$(cat "$SAVED_FILE" 2>/dev/null || echo 150)
                 [ "$saved" -lt 10 ] && saved=150
@@ -85,6 +111,7 @@ case "${1:-}" in
             else
                 printf '150\n' > "$BL/brightness"
             fi
+            "$DIR/kbd-backlight-watcher" --sync >/dev/null 2>&1 || true
         }
         ;;
     status)

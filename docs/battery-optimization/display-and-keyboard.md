@@ -13,7 +13,7 @@ Display and keyboard backlights represent the single largest continuous battery 
 | **Keyboard Backlight LEDs** | **~100 mW – 300 mW** | **Saves ~150 – 250 mW** by shutting off LEDs when ambient light suffices (completely **0% above 15 lux on Battery**, and **above 35 lux on AC**). Smoothly dissolves over ~1.5–2.0s. Capped at **50% on Battery** and **75% on AC**. |
 | **Display (Battery Profile)** | **~500 mW – 1,200 mW** | Automatically scales to a power-saving **30% baseline** in room lighting (~485 lux), saving **~1.0 W to 1.5 W** compared to high-brightness defaults. |
 | **Display (AC Power Profile)** | **~1,200 mW – 3,500 mW** | Automatically scales to a vibrant **55% baseline** in room lighting (~485 lux) to maximize visual quality without battery concern. |
-| **Lid-Closed Clamshell State** | **~500 mW – 2,000 mW** | When deep sleep is inhibited for background jobs, dims panel and keyboard to **0%**, saving full display power while tasks continue executing. |
+| **Lid-Closed Clamshell / Sleep State** | **~500 mW – 2,500 mW** | In `sleep on` mode, suspends to `s2idle`. In `sleep off` mode (active tasks), dims panel & keyboard to 0% and commands **Niri DRM to power down output (`eDP-1 off` / `power-off-monitors`)**, eliminating the hardware DCP 1% glow and reducing panel power to **0.0 W**. |
 | **ALS Sensor Hardware (AOP)** | **< 1 mW (microwatts)** | Apple Always-On Processor (AOP) monitors the photodiode in hardware at near-zero power. |
 | **Software Polling Overhead** | **~0.001 mW (< 0.02% CPU)** | Pure Python standard library implementation; memory footprint is **< 15 MB**. |
 
@@ -31,6 +31,7 @@ Display and keyboard backlights represent the single largest continuous battery 
   `/sys/class/power_supply/macsmc-ac/online` and `/sys/class/power_supply/macsmc-battery/` (provided by `macsmc-power`).
 - **Display Backlight Controller**:
   `/sys/class/backlight/apple-panel-bl/` (max brightness: `500`).
+  *Note*: Hardware DCP clamps minimum iDAC at ~1-2 nits; true panel shutoff requires DRM DPMS control via compositor.
 - **Keyboard Backlight Controller**:
   `/sys/class/leds/kbd_backlight/` (max brightness: `255`).
 
@@ -40,21 +41,32 @@ Display and keyboard backlights represent the single largest continuous battery 
 
 ```mermaid
 flowchart TD
-    subgraph Sensors ["Hardware Sensors & Power State"]
+    subgraph Sensors ["Sensors & State Resolution"]
         ALS["aop-sensors-als<br/>(Illuminance Lux)"]
         LAS["aop-sensors-las<br/>(Lid Angle Degrees)"]
+        LogindDBus["systemd-logind<br/>(LidClosed property)"]
+        UPowerDBus["UPower D-Bus<br/>(LidIsClosed property)"]
         Power["macsmc-ac<br/>(AC vs. Battery)"]
         SleepState["deep-sleep-inhibit.service<br/>(Sleep Inhibited?)"]
     end
 
-    subgraph Logic ["kbd-backlight-watcher Daemon"]
-        CheckLid{"Lid Angle <= 0°?<br/>(Closed)"}
+    subgraph MultiLid ["Multi-Source Lid Detection is_lid_closed()"]
+        LAS --> LidEval{"Angle <= 3° OR<br/>logind LidClosed OR<br/>UPower LidIsClosed OR<br/>Runtime State File?"}
+        LogindDBus --> LidEval
+        UPowerDBus --> LidEval
+    end
+
+    subgraph Logic ["kbd-backlight-watcher & backlight.sh"]
+        LidEval -- "Yes (Closed)" --> HardZero["Set Screen & Kbd = 0<br/>Block all auto-adjustments"]
+        HardZero --> CheckInhibit{"Deep Sleep<br/>Inhibited?"}
         
-        CheckLid -- "Yes (Closed)" --> CheckInhibit{"Deep Sleep<br/>Inhibited?"}
-        CheckInhibit -- "Yes (Active tasks)" --> DimZero["Dim Screen to 0%<br/>Dim Keyboard to 0%<br/>(Tasks continue running)"]
-        CheckInhibit -- "No (Normal Sleep)" --> NormalSleep["logind suspends to deep sleep"]
+        CheckInhibit -- "No (Sleep ON)" --> NormalSleep["logind suspends system to s2idle"]
+        CheckInhibit -- "Yes (Sleep OFF)" --> CheckOutputs{"External Monitor<br/>Connected?"}
         
-        CheckLid -- "No (Open)" --> CheckPower{"On AC Power?"}
+        CheckOutputs -- "Yes (Clamshell)" --> NiriExt["niri msg output eDP-1 off<br/>(External monitor stays active)"]
+        CheckOutputs -- "No (Standalone)" --> NiriDPMS["niri msg action power-off-monitors<br/>(DCP DRM DPMS complete power down)"]
+        
+        LidEval -- "No (Open)" --> CheckPower{"On AC Power?"}
         CheckPower -- "Yes (AC Connected)" --> ML_AC["predict(lux, profile='ac')<br/>Baseline: 55% at 485 lux"]
         CheckPower -- "No (Battery)" --> ML_BAT["predict(lux, profile='battery')<br/>Baseline: 30% at 485 lux"]
         
@@ -139,9 +151,45 @@ flowchart TD
   - **AC Power**: Capped at **75% max** (`191/255`) for enhanced visibility.
 - <kbd>Mod</kbd> + <kbd>BrightnessUp</kbd> / <kbd>Down</kbd> (<kbd>F5</kbd>/<kbd>F6</kbd>) adjusts the delta by $\pm 5\%$.
 
-### E. Lid-Close & Deep Sleep Harmony
-- **Deep Sleep Mode ON** (`[ 󰒲 sleep on ]`): Closing the lid allows `systemd-logind` to suspend the MacBook into deep sleep as normal.
-- **Deep Sleep Mode OFF** (`[ 󰒲 sleep off ]` / Active Tasks): Dims screen to **0%** and keyboard to **0%** while closed, restoring immediately upon reopening without delay.
+### E. Lid-Close & Niri DRM Display Power-Down Architecture
+
+#### The Apple Silicon DCP Hardware Challenge
+On Apple Silicon MacBooks running Linux Asahi, the display backlight controller (`apple-panel-bl`) is managed by Apple's Display Coprocessor (DCP). When software attempts to write `0` to `/sys/class/backlight/apple-panel-bl/brightness` while the DRM connector CRTC remains active, the DCP driver triggers a kernel RTKit firmware error:
+```
+[AFK]nitsToDBV: iDAC out of range
+```
+The hardware refuses to completely extinguish the mini-LED / Liquid Retina XDR backlight through the brightness register alone, clamping output to the minimum hardware iDAC floor (~1–2 nits, approximately 1% residual glow). This residual glow wastes battery and causes light leakage when the lid is closed in keep-awake mode (`sleep off`).
+
+#### Niri DRM Compositor Integration
+To achieve true 0.0 W display power-down, the system integrates directly with Niri's Wayland compositor DRM DPMS controls:
+1. **Multi-Monitor / Clamshell Mode**: If an external monitor (HDMI, USB-C/DisplayPort) is connected, closing the lid runs:
+   ```bash
+   niri msg output eDP-1 off
+   ```
+   This unbinds the internal panel CRTC completely without disturbing external displays, allowing seamless clamshell desktop workflows.
+2. **Standalone Mode**: If no external monitor is attached, closing the lid executes:
+   ```bash
+   niri msg action power-off-monitors
+   ```
+   This sends a full DRM DPMS suspend to all outputs, completely cutting power to the display controller and backlight hardware (true 0.0 nits, zero residual glow).
+3. **Lid Open / Restoration**: When the lid is reopened, the system executes:
+   ```bash
+   niri msg action power-on-monitors
+   niri msg output eDP-1 on
+   ```
+   and immediately restores the previous brightness level smoothly.
+
+#### Multi-Source Lid State Resolution (`is_lid_closed()`)
+Physical sensors on Apple laptops can suffer from mechanical flex or calibration offsets (e.g. resting at 1°–3° when physically closed). To eliminate false negatives and race conditions with the auto-brightness daemon, `is_lid_closed()` synthesizes 5 distinct signals:
+1. **Lid Angle Sensor (`aop-sensors-las`)**: Physical opening angle $\le 3.0^\circ$ (with a $3^\circ$ safety tolerance for resting closure). The sysfs device path is dynamically discovered (`/sys/bus/iio/devices/iio:device*`) to handle reboot enumeration changes.
+2. **systemd-logind D-Bus**: Evaluates `org.freedesktop.login1.Manager.LidClosed`.
+3. **UPower D-Bus**: Evaluates `org.freedesktop.UPower.LidIsClosed`.
+4. **Runtime State File**: Evaluates `${XDG_RUNTIME_DIR}/lid-closed` written synchronously by `backlight.sh lid-close`.
+5. **Backlight Guard**: Auto-brightness adjustments and sync loops in `kbd-backlight-watcher` check `is_lid_closed()` on every cycle. Any non-zero brightness write is strictly blocked while the lid is closed, preventing the daemon from waking the screen or keyboard in the dark.
+
+#### Sleep Mode Integration
+- **Deep Sleep Mode ON** (`[ 󰒲 sleep on ]`): Closing the lid allows `systemd-logind` to suspend the MacBook into `s2idle` deep sleep as normal.
+- **Deep Sleep Mode OFF** (`[ 󰒲 sleep off ]` / Active Tasks): Dims screen and keyboard to **0%**, powers down the DRM output via Niri, and keeps all CPU cores, network sockets, and user background tasks executing at full power with zero display draw.
 
 ---
 
@@ -199,6 +247,8 @@ poll_interval = 2.5
 | **Toggle ML Training Mode** | `~/.config/niri/scripts/backlight.sh train-toggle` |
 | **Set Training Duration (Days)** | `~/.config/niri/scripts/backlight.sh train [days]` |
 | **Force Immediate Resync** | `~/.config/niri/scripts/backlight.sh sync` |
+| **Trigger Lid Close Action** | `~/.config/niri/scripts/backlight.sh lid-close` |
+| **Trigger Lid Open Action** | `~/.config/niri/scripts/backlight.sh lid-open` |
 | **Adjust Keyboard Delta (+5% / -5%)** | `~/.config/niri/scripts/backlight.sh kbd-up` / `kbd-down` |
 | **Toggle Auto Screen Brightness** | `~/.config/niri/scripts/backlight.sh toggle-auto-screen` |
 | **Check Watcher Service Health** | `systemctl --user status kbd-backlight-watcher.service` |

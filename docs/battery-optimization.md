@@ -56,7 +56,7 @@ The system continuously balances peak performance on **AC power** with aggressiv
 - **Training Window & Waybar Indicator**: Actively learns for 7 days with a dedicated `[ 󰃠 train: 7d ]` indicator in Waybar, then automatically locks in your personalized curves.
 - **Smooth Gradual Ramping**: Transitions smoothly by **0.5% increments** every 50ms across light changes and AC plug/unplug events.
 - **Continuous Keyboard Backlight**: Uses cubic Hermite smoothstep fade with distinct thresholds for Battery (> 15 lux completely OFF) and AC Power (> 35 lux completely OFF). Dissolves gradually over ~1.5–2.0 seconds (1 unit / 30ms) instead of sudden single commands. Capped at **50% max** on battery and **75% max** on AC.
-- **Lid Clamshell**: Dims panel and keyboard to 0% when closed while deep sleep is inhibited for active tasks.
+- **Lid Clamshell & Niri DRM DPMS**: In keep-awake mode (`sleep off`), combines multi-source lid sensing with Niri DRM compositor controls (`niri msg action power-off-monitors` / `output eDP-1 off`), completely cutting panel power to 0.0 W and overcoming Apple DCP hardware minimum iDAC 1% glow.
 
 ### C. System-Level & Hardware Power Tuning
 - **Full Guide**: [`docs/battery-optimization/system-level.md`](battery-optimization/system-level.md)
