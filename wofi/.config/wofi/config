@@ -12,3 +12,12 @@ location=center
 key_exit=Escape
 layer=top
 hide_scroll=true
+
+# Vim navigation & modal search
+hide_search=true
+key_hide_search=slash
+key_down=j,Down,Ctrl-j,Ctrl-n
+key_up=k,Up,Ctrl-k,Ctrl-p
+key_left=h,Left
+key_right=l,Right
+key_submit=Return,o

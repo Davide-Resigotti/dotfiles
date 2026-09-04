@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Cameras
+GenericName=All Cameras
+Comment=Live vertical split of both RTSP cameras (Yard + Living Room)
+Exec=view-camera both
+Icon=camera-web
+Terminal=false
+Categories=AudioVideo;Video;
+StartupNotify=false

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Yard
+GenericName=Yard Camera
+Comment=Live RTSP feed from the yard camera
+Exec=view-camera yard
+Icon=camera-web
+Terminal=false
+Categories=AudioVideo;Video;
+StartupNotify=false

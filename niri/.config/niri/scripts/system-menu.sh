@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# system-menu.sh — Wofi-based System Shortcuts & System Details Menu for Niri
+# system-menu.sh — Wofi-based System Shortcuts & System Details HUD for Niri
 # ==============================================================================
-# Provides a searchable HUD with two sections:
-#  1. System Shortcuts: Keybindings from Niri config (copies shortcut to clipboard)
-#  2. System Details: Terminal diagnostic commands (copies & runs in floating Ghostty)
+# Features:
+#  - Top-level menu: "System Details" vs "System Shortcuts"
+#  - Persistent "Last Used Command" on top for instant re-run
+#  - Direct in-place command execution and result viewing inside Wofi (no terminal windows)
+#  - Vim motions (j/k/h/l, o/Return to open) and modal search (/)
+#  - Escape returns to previous menu level
 # ==============================================================================
 
 set -euo pipefail
@@ -18,29 +21,239 @@ if ! command -v wofi >/dev/null 2>&1; then
     exit 1
 fi
 
+WOFI_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/wofi/config"
+WOFI_STYLE="${XDG_CONFIG_HOME:-$HOME/.config}/wofi/style.css"
+
 # Load current dynamic theme accents if available
 ACCENT="#df6124"
-FG="#dcdfe4"
+FG="#f0f0f4"
 ACCENT_ENV="${XDG_CONFIG_HOME:-$HOME/.config}/theme/current-accent.env"
 if [[ -f "$ACCENT_ENV" ]]; then
     # shellcheck disable=SC1090
     source "$ACCENT_ENV" 2>/dev/null || true
     ACCENT="${PRIMARY_COLOR:-#df6124}"
-    FG="${SYSTEM_FG:-#dcdfe4}"
 fi
 
-# Secondary colors for rich visual distinction
 COLOR_KEY="$ACCENT"
 COLOR_CMD="#61afef"
 COLOR_DESC="#abb2bf"
+COLOR_STAR="#a6e3a1"
+COLOR_SHORTCUTS="#f9e2af"
+COLOR_DOCS="#cba6f7"
 COLOR_HEADER="$ACCENT"
 
-generate_menu() {
-    # --------------------------------------------------------------------------
-    # SECTION 1: SYSTEM SHORTCUTS
-    # --------------------------------------------------------------------------
-    echo "<span weight=\"bold\" foreground=\"$COLOR_HEADER\">═══  SYSTEM SHORTCUTS  ══════════════════════════════════════════════════</span>"
-    
+# Persistence for last command used
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/system-menu"
+LAST_CMD_FILE="$CACHE_DIR/last-command"
+mkdir -p "$CACHE_DIR"
+
+# Pre-seed with backlight status if file does not exist yet
+if [[ ! -f "$LAST_CMD_FILE" ]]; then
+    printf 'backlight status|~/.config/niri/scripts/backlight.sh status\n' > "$LAST_CMD_FILE"
+fi
+
+# Pango markup escaping & stripping helpers (supports both argument and stdin pipe)
+escape_pango() {
+    local input="${1:-$(cat)}"
+    printf '%s' "$input" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+}
+
+strip_pango() {
+    local input="${1:-$(cat)}"
+    printf '%s' "$input" | sed -e 's/<[^>]*>//g' -e 's/&amp;/\&/g' -e 's/&lt;/</g' -e 's/&gt;/>/g' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+get_last_command() {
+    if [[ -f "$LAST_CMD_FILE" ]]; then
+        IFS='|' read -r LAST_LABEL LAST_CMD < "$LAST_CMD_FILE" || true
+        export LAST_LABEL="${LAST_LABEL:-}"
+        export LAST_CMD="${LAST_CMD:-}"
+    else
+        export LAST_LABEL=""
+        export LAST_CMD=""
+    fi
+}
+
+save_last_command() {
+    local label="$1"
+    local cmd="$2"
+    mkdir -p "$CACHE_DIR"
+    printf '%s|%s\n' "$label" "$cmd" > "$LAST_CMD_FILE"
+}
+
+# ------------------------------------------------------------------------------
+# In-Wofi Command Execution & Result Viewer
+# ------------------------------------------------------------------------------
+show_command_result() {
+    local label="$1"
+    local raw_cmd="$2"
+    local expanded_cmd="${raw_cmd/#\~/$HOME}"
+
+    # Update persistent last command
+    save_last_command "$label" "$raw_cmd"
+
+    # Copy command to clipboard
+    if command -v wl-copy >/dev/null 2>&1; then
+        echo -n "$raw_cmd" | wl-copy
+    fi
+
+    while true; do
+        # Execute command and capture combined output
+        local raw_output
+        raw_output="$(eval "$expanded_cmd" 2>&1 || true)"
+
+        # Build in-place result view for Wofi
+        local menu_content
+        menu_content="$(
+            printf '<span weight="bold" foreground="%s">═══  %s  ═══</span>\n' "$COLOR_HEADER" "$label"
+            printf '<span foreground="%s">▶ Command:</span> <span weight="bold" foreground="%s">%s</span> <span foreground="%s">(copied to clipboard)</span>\n' \
+                "$COLOR_STAR" "$COLOR_CMD" "$raw_cmd" "$COLOR_DESC"
+            printf '<span weight="bold" foreground="%s">󰌌  [ Back to System Details ]</span>\n' "$COLOR_SHORTCUTS"
+            printf '<span foreground="%s">────────────────────────────────────────────────────────────────────────────</span>\n' "$COLOR_DESC"
+
+            if [[ -z "$raw_output" ]]; then
+                printf '<span foreground="%s"><i>(Command completed with empty output)</i></span>\n' "$COLOR_DESC"
+            else
+                while IFS= read -r line; do
+                    local escaped
+                    escaped="$(printf '%s\n' "$line" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
+                    printf '<span foreground="%s">%s</span>\n' "$FG" "$escaped"
+                done <<< "$raw_output"
+            fi
+
+            printf '<span foreground="%s">────────────────────────────────────────────────────────────────────────────</span>\n' "$COLOR_DESC"
+            printf '<span weight="bold" foreground="%s">󰌌  [ Back to System Details ]</span>\n' "$COLOR_SHORTCUTS"
+            printf '<span weight="bold" foreground="%s">󰑐  [ Re-run Command ]</span>\n' "$COLOR_CMD"
+            printf '<span weight="bold" foreground="%s">📋 [ Copy Full Output to Clipboard ]</span>\n' "$COLOR_STAR"
+        )"
+
+        local res_choice
+        res_choice="$(echo "$menu_content" | wofi --conf "$WOFI_CONF" \
+                                                 --style "$WOFI_STYLE" \
+                                                 --prompt "$label > " \
+                                                 --height 600 \
+                                                 --width 920 \
+                                                 2>/dev/null || true)"
+
+        # Escape closes Wofi completely
+        if [[ -z "$res_choice" ]]; then
+            exit 0
+        fi
+
+        # User explicitly requested returning to System Details
+        if [[ "$res_choice" == *"Back to System Details"* ]]; then
+            return 0
+        elif [[ "$res_choice" == *"Re-run Command"* ]]; then
+            continue
+        elif [[ "$res_choice" == *"Copy Full Output"* ]]; then
+            if command -v wl-copy >/dev/null 2>&1; then
+                echo -n "$raw_output" | wl-copy
+            fi
+            if command -v notify-send >/dev/null 2>&1; then
+                notify-send "Output Copied" "Output of $label copied to clipboard" -a "System Details" -i edit-copy -t 2500
+            fi
+            exit 0
+        else
+            # User selected a specific line: copy clean text to clipboard and exit
+            local clean_line
+            clean_line="$(echo "$res_choice" | sed -e 's/<[^>]*>//g' -e 's/&amp;/\&/g' -e 's/&lt;/</g' -e 's/&gt;/>/g' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+            if [[ -n "$clean_line" ]]; then
+                if command -v wl-copy >/dev/null 2>&1; then
+                    echo -n "$clean_line" | wl-copy
+                fi
+                if command -v notify-send >/dev/null 2>&1; then
+                    notify-send "Line Copied" "$clean_line" -a "System Details" -i edit-copy -t 2000
+                fi
+            fi
+            exit 0
+        fi
+    done
+}
+
+# ------------------------------------------------------------------------------
+# Top-Level Main Menu
+# ------------------------------------------------------------------------------
+generate_main_menu() {
+    get_last_command
+    if [[ -n "${LAST_CMD:-}" ]]; then
+        printf '<span weight="bold" foreground="%s">★ Last Command:</span> <span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">%s</span>\n' \
+            "$COLOR_STAR" "$COLOR_CMD" "${LAST_LABEL:-command}" "$COLOR_DESC" "$LAST_CMD"
+    fi
+    printf '<span weight="bold" foreground="%s">%-36s</span> │ <span foreground="%s">Hardware power, backlight, tuned, services, diagnostics</span>\n' \
+        "$COLOR_CMD" "󰄛  System Details" "$FG"
+    printf '<span weight="bold" foreground="%s">%-36s</span> │ <span foreground="%s">Niri keybindings, window management, workspaces, launchers</span>\n' \
+        "$COLOR_SHORTCUTS" "󰌌  System Shortcuts" "$FG"
+    printf '<span weight="bold" foreground="%s">%-36s</span> │ <span foreground="%s">Read guides for scripts, power optimization, and dotfiles</span>\n' \
+        "$COLOR_DOCS" "󰈙  Documentation" "$FG"
+}
+
+# ------------------------------------------------------------------------------
+# Submenu 1: System Details Commands
+# ------------------------------------------------------------------------------
+generate_details_menu() {
+    get_last_command
+    if [[ -n "${LAST_CMD:-}" ]]; then
+        printf '<span weight="bold" foreground="%s">★ Last Used:</span>   <span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">%s</span>\n' \
+            "$COLOR_STAR" "$COLOR_CMD" "${LAST_LABEL:-command}" "$COLOR_DESC" "$LAST_CMD"
+    fi
+
+    # Backlight & ALS
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">~/.config/niri/scripts/backlight.sh status</span>\n' \
+        "$COLOR_CMD" "backlight status" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">~/.config/niri/scripts/backlight.sh model</span>\n' \
+        "$COLOR_CMD" "backlight model" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">~/.config/niri/scripts/backlight.sh toggle-auto-screen</span>\n' \
+        "$COLOR_CMD" "auto-screen toggle" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">~/.config/niri/scripts/backlight.sh train-toggle</span>\n' \
+        "$COLOR_CMD" "ml training toggle" "$COLOR_DESC"
+
+    # Battery & hardware power management
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">cat /sys/class/power_supply/macsmc-battery/power_now</span>\n' \
+        "$COLOR_CMD" "battery discharge" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">cat /sys/class/power_supply/macsmc-battery/capacity</span>\n' \
+        "$COLOR_CMD" "battery capacity" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">cat /sys/class/power_supply/macsmc-battery/status</span>\n' \
+        "$COLOR_CMD" "battery status" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">sudo /usr/local/bin/hardware-power-toggle status</span>\n' \
+        "$COLOR_CMD" "hardware eco status" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">~/.config/waybar/scripts/hardware-power-toggle.sh --toggle</span>\n' \
+        "$COLOR_CMD" "hardware eco toggle" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">tuned-adm active</span>\n' \
+        "$COLOR_CMD" "tuned profile" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">cat /sys/module/pcie_aspm/parameters/policy</span>\n' \
+        "$COLOR_CMD" "pcie aspm policy" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">cat /sys/bus/pci/devices/0000:02:00.0/power/control</span>\n' \
+        "$COLOR_CMD" "sdcard power state" "$COLOR_DESC"
+
+    # Wallpaper & system services
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">ps aux | grep -E "mpvpaper|swaybg" | grep -v grep</span>\n' \
+        "$COLOR_CMD" "wallpaper engine" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">ps aux | grep -iE "akonadi|mysqld" | grep -v grep</span>\n' \
+        "$COLOR_CMD" "akonadi / mysql" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">systemctl --user status kbd-backlight-watcher.service</span>\n' \
+        "$COLOR_CMD" "backlight service" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">systemctl --user status waypaper-power-watcher.service</span>\n' \
+        "$COLOR_CMD" "wallpaper service" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">systemctl --user status deep-sleep-inhibit.service</span>\n' \
+        "$COLOR_CMD" "deep sleep status" "$COLOR_DESC"
+
+    # Displays, audio & theme
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">niri msg outputs</span>\n' \
+        "$COLOR_CMD" "niri outputs" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">niri msg workspaces</span>\n' \
+        "$COLOR_CMD" "niri workspaces" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">niri msg windows</span>\n' \
+        "$COLOR_CMD" "niri windows" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">wpctl status</span>\n' \
+        "$COLOR_CMD" "audio status" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">~/.local/bin/set-accent current</span>\n' \
+        "$COLOR_CMD" "theme accent" "$COLOR_DESC"
+}
+
+# ------------------------------------------------------------------------------
+# Submenu 2: System Shortcuts
+# ------------------------------------------------------------------------------
+generate_shortcuts_menu() {
     # Core applications & launchers
     printf '<span weight="bold" foreground="%s">%-22s</span> • <span foreground="%s">Open a Terminal (ghostty)</span>\n' \
         "$COLOR_KEY" "Mod + Return" "$FG"
@@ -138,129 +351,240 @@ generate_menu() {
         "$COLOR_KEY" "Mod + Escape" "$FG"
     printf '<span weight="bold" foreground="%s">%-22s</span> • <span foreground="%s">Quit Niri Session (confirmation dialog)</span>\n' \
         "$COLOR_KEY" "Mod + Shift + E" "$FG"
-
-    # --------------------------------------------------------------------------
-    # SECTION 2: SYSTEM DETAILS
-    # --------------------------------------------------------------------------
-    echo "<span weight=\"bold\" foreground=\"$COLOR_HEADER\">═══  SYSTEM DETAILS (RUN &amp; VIEW)  ══════════════════════════════════════</span>"
-
-    # Backlight & ALS
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">~/.config/niri/scripts/backlight.sh status</span>\n' \
-        "$COLOR_CMD" "backlight status" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">~/.config/niri/scripts/backlight.sh model</span>\n' \
-        "$COLOR_CMD" "backlight model" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">~/.config/niri/scripts/backlight.sh toggle-auto-screen</span>\n' \
-        "$COLOR_CMD" "auto-screen toggle" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">~/.config/niri/scripts/backlight.sh train-toggle</span>\n' \
-        "$COLOR_CMD" "ml training toggle" "$COLOR_DESC"
-
-    # Battery & hardware power management
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">cat /sys/class/power_supply/macsmc-battery/power_now</span>\n' \
-        "$COLOR_CMD" "battery discharge" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">cat /sys/class/power_supply/macsmc-battery/capacity</span>\n' \
-        "$COLOR_CMD" "battery capacity" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">cat /sys/class/power_supply/macsmc-battery/status</span>\n' \
-        "$COLOR_CMD" "battery status" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">sudo /usr/local/bin/hardware-power-toggle status</span>\n' \
-        "$COLOR_CMD" "hardware eco status" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">~/.config/waybar/scripts/hardware-power-toggle.sh --toggle</span>\n' \
-        "$COLOR_CMD" "hardware eco toggle" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">tuned-adm active</span>\n' \
-        "$COLOR_CMD" "tuned profile" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">cat /sys/module/pcie_aspm/parameters/policy</span>\n' \
-        "$COLOR_CMD" "pcie aspm policy" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">cat /sys/bus/pci/devices/0000:02:00.0/power/control</span>\n' \
-        "$COLOR_CMD" "sdcard power state" "$COLOR_DESC"
-
-    # Wallpaper & system services
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">ps aux | grep -E "mpvpaper|swaybg" | grep -v grep</span>\n' \
-        "$COLOR_CMD" "wallpaper engine" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">ps aux | grep -iE "akonadi|mysqld" | grep -v grep</span>\n' \
-        "$COLOR_CMD" "akonadi / mysql" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">systemctl --user status kbd-backlight-watcher.service</span>\n' \
-        "$COLOR_CMD" "backlight service" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">systemctl --user status waypaper-power-watcher.service</span>\n' \
-        "$COLOR_CMD" "wallpaper service" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">systemctl --user status deep-sleep-inhibit.service</span>\n' \
-        "$COLOR_CMD" "deep sleep status" "$COLOR_DESC"
-
-    # Displays, audio & theme
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">niri msg outputs</span>\n' \
-        "$COLOR_CMD" "niri outputs" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">niri msg workspaces</span>\n' \
-        "$COLOR_CMD" "niri workspaces" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">niri msg windows</span>\n' \
-        "$COLOR_CMD" "niri windows" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">wpctl status</span>\n' \
-        "$COLOR_CMD" "audio status" "$COLOR_DESC"
-    printf '<span weight="bold" foreground="%s">%-20s</span> │ <span foreground="%s">~/.local/bin/set-accent current</span>\n' \
-        "$COLOR_CMD" "theme accent" "$COLOR_DESC"
 }
 
-# Allow dry-run dump for verification or headless checks
-if [[ "${1:-}" == "--dump" || "${1:-}" == "--test" ]]; then
-    generate_menu
-    exit 0
-fi
+# ------------------------------------------------------------------------------
+# Submenu Handlers
+# ------------------------------------------------------------------------------
+handle_details_menu() {
+    local selected
+    selected="$(generate_details_menu | wofi --conf "$WOFI_CONF" \
+                                             --style "$WOFI_STYLE" \
+                                             --prompt "System Details (/ to search) > " \
+                                             --height 580 \
+                                             --width 880 \
+                                             2>/dev/null || true)"
+    [[ -z "$selected" ]] && return 1
 
-# Run Wofi
-SELECTED="$(generate_menu | wofi --conf "${XDG_CONFIG_HOME:-$HOME/.config}/wofi/config" \
-                                --style "${XDG_CONFIG_HOME:-$HOME/.config}/wofi/style.css" \
-                                2>/dev/null || true)"
+    if [[ "$selected" == *"│"* ]]; then
+        local raw_cmd label
+        raw_cmd="$(echo "$selected" | awk -F'│' '{print $2}' | strip_pango)"
+        label="$(echo "$selected" | awk -F'│' '{print $1}' | strip_pango | sed -e 's/★ Last Used:[[:space:]]*//')"
+        show_command_result "$label" "$raw_cmd"
+        return 0
+    fi
+    return 1
+}
 
-# Exit if user cancelled or pressed Escape
-[[ -z "$SELECTED" ]] && exit 0
+handle_shortcuts_menu() {
+    local selected
+    selected="$(generate_shortcuts_menu | wofi --conf "$WOFI_CONF" \
+                                               --style "$WOFI_STYLE" \
+                                               --prompt "System Shortcuts (/ to search) > " \
+                                               --height 580 \
+                                               --width 880 \
+                                               2>/dev/null || true)"
+    [[ -z "$selected" ]] && return 1
 
-# If user clicked a section header, ignore and exit
-if [[ "$SELECTED" =~ ^[═\─] ]]; then
-    exit 0
-fi
+    if [[ "$selected" == *"•"* ]]; then
+        local key action
+        key="$(echo "$selected" | awk -F'•' '{print $1}' | strip_pango)"
+        action="$(echo "$selected" | awk -F'•' '{print $2}' | strip_pango)"
+
+        # Copy shortcut to clipboard
+        if command -v wl-copy >/dev/null 2>&1; then
+            echo -n "$key — $action" | wl-copy
+        fi
+
+        # Send notification
+        if command -v notify-send >/dev/null 2>&1; then
+            notify-send "Shortcut Copied" "$key\n$action" -a "System Shortcuts" -i input-keyboard -t 3000
+        fi
+        return 0
+    fi
+    return 1
+}
 
 # ------------------------------------------------------------------------------
-# Process System Details Selection (contains │)
+# Submenu 3: Documentation
 # ------------------------------------------------------------------------------
-if [[ "$SELECTED" == *"│"* ]]; then
-    RAW_CMD="$(echo "$SELECTED" | awk -F'│' '{print $2}' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-    LABEL="$(echo "$SELECTED" | awk -F'│' '{print $1}' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+emit_doc_entry() {
+    local filepath="$1"
+    local custom_title="${2:-}"
 
-    # Expand ~ to $HOME in command
-    EXPANDED_CMD="${RAW_CMD/#\~/$HOME}"
-
-    # Copy exact command to clipboard
-    if command -v wl-copy >/dev/null 2>&1; then
-        echo -n "$RAW_CMD" | wl-copy
+    local title="$custom_title"
+    if [[ -z "$title" ]]; then
+        # Try to extract the first Markdown # heading from the file
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            line="$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+            if [[ "$line" =~ ^#[[:space:]]+(.+)$ ]]; then
+                title="${BASH_REMATCH[1]}"
+                break
+            fi
+        done < "$filepath"
     fi
 
-    # Launch floating Ghostty terminal running the command
-    ghostty --class=system-details \
-            --title="System Details: $LABEL" \
-            -e bash -c '
-                raw_cmd="$1"
-                expanded_cmd="$2"
-                printf "\033[1;38;2;223;97;36m▶ Command:\033[0m \033[1;37m%s\033[0m\n\n" "$raw_cmd"
-                eval "$expanded_cmd"
-                printf "\n\033[2m───────────────────────────────────────────────────────────\033[0m\n"
-                printf "\033[2m✓ Copied to clipboard. Press Enter or Ctrl+C to close.\033[0m\n"
-                read -r _
-            ' bash "$RAW_CMD" "$EXPANDED_CMD" &
+    if [[ -z "$title" ]]; then
+        local bname
+        bname="$(basename "$filepath" .md)"
+        title="$(echo "$bname" | tr '-' ' ' | sed -e 's/\b\(.\)/\u\1/g')"
+    fi
+
+    # Trim title if too long so the menu stays neat and aligned
+    if (( ${#title} > 36 )); then
+        title="${title:0:33}..."
+    fi
+
+    local rel_path="~${filepath#$HOME}"
+    local title_escaped path_escaped
+    title_escaped="$(escape_pango "$title")"
+    path_escaped="$(escape_pango "$rel_path")"
+
+    printf '<span weight="bold" foreground="%s">%-36s</span> │ <span foreground="%s">%s</span>\n' \
+        "$COLOR_DOCS" "$title_escaped" "$COLOR_DESC" "$path_escaped"
+}
+
+generate_docs_menu() {
+    local -A seen_real=()
+
+    # Priority curated entries with clear, descriptive titles
+    local -a curated=(
+        "$HOME/dotfiles/docs/battery-optimization.md|Battery & Power Overview"
+        "$HOME/dotfiles/docs/battery-optimization/display-and-keyboard.md|Display & Keyboard ALS"
+        "$HOME/dotfiles/docs/battery-optimization/wallpaper.md|Dynamic Wallpaper Power"
+        "$HOME/dotfiles/docs/battery-optimization/system-level.md|Hardware & System Tuning"
+        "$HOME/.config/niri/cameras.md|RTSP Camera Viewers"
+        "$HOME/dotfiles/niri/.config/niri/cameras.md|RTSP Camera Viewers"
+        "$HOME/dotfiles/README.md|Dotfiles & System Guide"
+    )
+
+    for item in "${curated[@]}"; do
+        local f="${item%%|*}"
+        local title="${item#*|}"
+        if [[ -f "$f" ]]; then
+            local real
+            real="$(realpath "$f" 2>/dev/null || true)"
+            [[ -z "$real" || -n "${seen_real[$real]:-}" ]] && continue
+            seen_real["$real"]=1
+            emit_doc_entry "$f" "$title"
+        fi
+    done
+
+    # Search directories for any other documentation files created by user
+    local -a search_dirs=(
+        "$HOME/dotfiles/docs"
+        "$HOME/.config/niri"
+        "$HOME/.config"
+        "$HOME/docs"
+        "$HOME/dotfiles"
+    )
+
+    for sdir in "${search_dirs[@]}"; do
+        [[ ! -d "$sdir" ]] && continue
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            local base
+            base="$(basename "$f")"
+            # Ignore licenses, templates, node_modules, changelogs
+            [[ "$base" =~ ^(LICENSE|CHANGELOG|bug_report|feature_request) ]] && continue
+            local real
+            real="$(realpath "$f" 2>/dev/null || true)"
+            [[ -z "$real" || -n "${seen_real[$real]:-}" ]] && continue
+            seen_real["$real"]=1
+            emit_doc_entry "$f" ""
+        done < <(find "$sdir" -maxdepth 3 -type f -name "*.md" ! -path "*/.*" ! -path "*/node_modules/*" ! -path "*/venv/*" ! -path "*/.venv/*" 2>/dev/null | sort || true)
+    done
+}
+
+handle_docs_menu() {
+    local selected
+    selected="$(generate_docs_menu | wofi --conf "$WOFI_CONF" \
+                                          --style "$WOFI_STYLE" \
+                                          --prompt "Documentation (/ to search) > " \
+                                          --height 580 \
+                                          --width 880 \
+                                          2>/dev/null || true)"
+    [[ -z "$selected" ]] && return 1
+
+    if [[ "$selected" == *"│"* ]]; then
+        local raw_path title
+        raw_path="$(echo "$selected" | awk -F'│' '{print $2}' | strip_pango)"
+        title="$(echo "$selected" | awk -F'│' '{print $1}' | strip_pango)"
+        local expanded_path="${raw_path/#\~/$HOME}"
+        if [[ -f "$expanded_path" ]]; then
+            ghostty --class=dev.nvim.docs \
+                    --title="Documentation: $title" \
+                    -e nvim "$expanded_path" &
+            exit 0
+        else
+            if command -v notify-send >/dev/null 2>&1; then
+                notify-send "File Not Found" "Cannot open $expanded_path" -a "Documentation" -u critical -i dialog-error
+            fi
+            return 1
+        fi
+    fi
+    return 1
+}
+
+# ------------------------------------------------------------------------------
+# CLI Flags (dry-run / dump)
+# ------------------------------------------------------------------------------
+if [[ "${1:-}" == "--dump" || "${1:-}" == "--dump-main" ]]; then
+    generate_main_menu
+    exit 0
+elif [[ "${1:-}" == "--dump-details" ]]; then
+    generate_details_menu
+    exit 0
+elif [[ "${1:-}" == "--dump-shortcuts" ]]; then
+    generate_shortcuts_menu
+    exit 0
+elif [[ "${1:-}" == "--dump-docs" ]]; then
+    generate_docs_menu
     exit 0
 fi
 
 # ------------------------------------------------------------------------------
-# Process System Shortcuts Selection (contains •)
+# Main Application Loop
 # ------------------------------------------------------------------------------
-if [[ "$SELECTED" == *"•"* ]]; then
-    KEY="$(echo "$SELECTED" | awk -F'•' '{print $1}' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-    ACTION="$(echo "$SELECTED" | awk -F'•' '{print $2}' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+while true; do
+    CHOICE="$(generate_main_menu | wofi --conf "$WOFI_CONF" \
+                                       --style "$WOFI_STYLE" \
+                                       --prompt "Select Menu (/ to search) > " \
+                                       --height 310 \
+                                       --width 860 \
+                                       2>/dev/null || true)"
 
-    # Copy shortcut info to clipboard
-    if command -v wl-copy >/dev/null 2>&1; then
-        echo -n "$KEY — $ACTION" | wl-copy
-    fi
+    [[ -z "$CHOICE" ]] && exit 0
 
-    # Display desktop notification
-    if command -v notify-send >/dev/null 2>&1; then
-        notify-send "Shortcut Copied" "$KEY\n$ACTION" -a "System Shortcuts" -i input-keyboard -t 3000
+    CLEAN_CHOICE="$(strip_pango "$CHOICE")"
+
+    # User chose "Last Command" directly from the top menu
+    if [[ "$CLEAN_CHOICE" == *"Last"* ]]; then
+        get_last_command
+        if [[ -n "${LAST_CMD:-}" ]]; then
+            show_command_result "${LAST_LABEL:-command}" "$LAST_CMD"
+        fi
+        # Returns back to main menu loop
+    elif [[ "$CLEAN_CHOICE" == *"System Details"* ]]; then
+        while true; do
+            if ! handle_details_menu; then
+                break
+            fi
+        done
+        # If Escape was pressed in details submenu, loop back to main menu
+    elif [[ "$CLEAN_CHOICE" == *"System Shortcuts"* ]]; then
+        if handle_shortcuts_menu; then
+            exit 0
+        fi
+        # If Escape was pressed in shortcuts submenu, loop back to main menu
+    elif [[ "$CLEAN_CHOICE" == *"Documentation"* ]]; then
+        while true; do
+            if ! handle_docs_menu; then
+                break
+            fi
+        done
+        # If Escape was pressed in docs submenu, loop back to main menu
+    else
+        exit 0
     fi
-    exit 0
-fi
+done

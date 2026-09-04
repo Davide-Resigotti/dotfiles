@@ -191,7 +191,7 @@ animation: repeat;
   }
 }
 
-#battery.critical:not(.charging) {
+#battery.critical:not(.charging):not(.plugged) {
   background-color: transparent;
   color: #e6d8ba;
   animation-name: blink2;
@@ -221,4 +221,4 @@ animation: repeat;
     color: @accent;
 }
 
-/* accent-ts: 1788514009258201023 */
+/* accent-ts: 1788522852775886926 */

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Living Room
+GenericName=Living Room Camera
+Comment=Live RTSP feed from the living room camera
+Exec=view-camera living-room
+Icon=camera-web
+Terminal=false
+Categories=AudioVideo;Video;
+StartupNotify=false

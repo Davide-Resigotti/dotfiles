@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# RTSP Camera Stream Viewer
+# Usage: view-camera [yard|living-room|both]
+CAM_YARD="rtsp://192.168.1.206:554/stream1"
+CAM_LIVING="rtsp://192.168.1.10:554/stream1"
+
+# Low-latency streaming options optimized for Apple Silicon (Asahi Linux)
+# - Software decode (--hwdec=no) avoids unsupported Vulkan video decode queue errors
+# - TCP transport ensures zero packet loss and no HEVC corruption artifacts
+# - desync video-sync avoids timestamp jitter stutter on live camera feeds
+MPV_OPTS=(
+    --profile=low-latency
+    --rtsp-transport=tcp
+    --demuxer-lavf-analyzeduration=0.5
+    --demuxer-lavf-probesize=32768
+    --video-sync=desync
+    --no-audio
+    --hwdec=no
+)
+
+TARGET="${1:-both}"
+
+case "$TARGET" in
+    yard|Yard)
+        exec mpv "${MPV_OPTS[@]}" \
+            --title="Yard Camera" \
+            --wayland-app-id=camera-yard \
+            --autofit=50%x50% \
+            "$CAM_YARD"
+        ;;
+    living-room|living|Living*|"living room")
+        exec mpv "${MPV_OPTS[@]}" \
+            --title="Living Room Camera" \
+            --wayland-app-id=camera-living-room \
+            --autofit=50%x50% \
+            "$CAM_LIVING"
+        ;;
+    both|cameras|all|Cameras)
+        exec mpv "${MPV_OPTS[@]}" \
+            --title="Cameras (Yard & Living Room)" \
+            --wayland-app-id=cameras \
+            --autofit=40%x70% \
+            --lavfi-complex="[vid1][vid2]vstack[vo]" \
+            --external-file="$CAM_LIVING" \
+            "$CAM_YARD"
+        ;;
+    *)
+        echo "Usage: $(basename "$0") [yard|living-room|both]" >&2
+        exit 1
+        ;;
+esac
