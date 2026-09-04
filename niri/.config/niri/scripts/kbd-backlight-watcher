@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """
-Ambient Light Sensor (ALS) & Adaptive Backlight Controller
+Ambient Light Sensor (ALS) & Dual-Profile Adaptive Backlight Controller
 Automatically controls keyboard backlight and screen brightness using ambient room lux:
-- Keyboard Backlight: Turns OFF in bright/normal room light (> 55 lux) to save battery;
-  turns ON proportionally (with delta) in dim/dark rooms (< 30 lux), strictly capped at 50%.
-- Screen Brightness: Smoothly glides by 0.5% steps using a lightweight Machine Learning model
-  (Kernel Anchor Spline) that learns personalized preferences from manual F1/F2 adjustments.
-- Lid & Deep Sleep Integration: Dims screen to 0% and keyboard to 0% when lid is closed
-  while deep sleep is inhibited (tasks running), without conflicting with deep sleep suspend.
+- Dual Power Profiles:
+  - Battery: Power-saving curve (~30% baseline at 485 lux, max 50% keyboard cap).
+  - AC Power: High-experience curve (~55% baseline at 485 lux, max 75% keyboard cap).
+- Machine Learning with Training Window:
+  - Learns user manual F1/F2 preferences separately for AC and Battery.
+  - Active training window (default: 7 days) with Waybar reminder string, auto-locks when finished.
+- Smooth Gradual Transitions:
+  - Stepping smoothly by 0.5% every 50ms across ambient changes and AC plug/unplug events.
+- Lid & Deep Sleep Integration:
+  - Dims screen and keyboard to 0% when lid is closed with sleep inhibited, without conflicting with deep sleep suspend.
 """
 
 import argparse
+import glob
 import json
 import math
 import os
@@ -44,6 +49,8 @@ DEFAULT_CONFIG = {
     "kbd_lux_dark": 30.0,
     "kbd_lux_bright": 55.0,
     "kbd_delta_pct": 0.0,
+    "kbd_max_pct_battery": 50.0,
+    "kbd_max_pct_ac": 75.0,
     "kbd_max_pct": 50.0,
     "auto_screen": True,
     "screen_min_pct": 5,
@@ -54,8 +61,36 @@ DEFAULT_CONFIG = {
     "ml_learning": True,
     "ml_learning_rate": 0.75,
     "ml_settle_delay": 2.5,
+    "ml_training_days": 7,
+    "ml_training_enabled": True,
     "poll_interval": 2.5,
 }
+
+
+def is_on_ac():
+    """Detects whether system is running on AC mains or discharging battery."""
+    supplies = glob.glob("/sys/class/power_supply/*")
+    if not supplies:
+        return True
+
+    has_battery = False
+    for p in supplies:
+        try:
+            with open(os.path.join(p, "type")) as ft:
+                ptype = ft.read().strip()
+            if ptype == "Battery":
+                has_battery = True
+            elif ptype in ("Mains", "USB", "USB_PD", "AC"):
+                with open(os.path.join(p, "online")) as fo:
+                    if fo.read().strip() == "1":
+                        return True
+        except Exception:
+            pass
+    return not has_battery
+
+
+def get_active_profile():
+    return "ac" if is_on_ac() else "battery"
 
 
 def load_config():
@@ -75,6 +110,8 @@ def load_config():
                             "kbd_lux_dark",
                             "kbd_lux_bright",
                             "kbd_delta_pct",
+                            "kbd_max_pct_battery",
+                            "kbd_max_pct_ac",
                             "kbd_max_pct",
                             "ramp_step_pct",
                             "ml_learning_rate",
@@ -82,9 +119,19 @@ def load_config():
                             "poll_interval",
                         ):
                             cfg[k] = float(v)
-                        elif k in ("screen_min_pct", "screen_max_pct", "ramp_interval_ms"):
+                        elif k in (
+                            "screen_min_pct",
+                            "screen_max_pct",
+                            "ramp_interval_ms",
+                            "ml_training_days",
+                        ):
                             cfg[k] = int(v)
-                        elif k in ("auto_screen", "smooth_ramp", "ml_learning"):
+                        elif k in (
+                            "auto_screen",
+                            "smooth_ramp",
+                            "ml_learning",
+                            "ml_training_enabled",
+                        ):
                             cfg[k] = v.lower() in ("true", "1", "yes", "on")
         except Exception:
             pass
@@ -273,11 +320,15 @@ def record_manual_adjustment(val):
     disp_max = disp_max or 500
     pct = round((val / disp_max) * 100.0, 1)
     lux_val = round(lux, 1) if lux is not None else 485.0
+    profile = get_active_profile()
+
     payload = {
         "lux": lux_val,
         "pct": pct,
+        "profile": profile,
         "timestamp": time.time(),
         "learned": False,
+        "synced": False,
     }
     try:
         os.makedirs(STATE_DIR, exist_ok=True)
@@ -299,11 +350,12 @@ def record_manual_adjustment(val):
     else:
         kbd_delta = get_kbd_delta(cfg)
         screen_pct = (val / disp_max) * 100.0
-        kbd_target_pct = max(0.0, min(float(cfg["kbd_max_pct"]), screen_pct + kbd_delta))
+        kbd_cap = cfg["kbd_max_pct_ac"] if is_on_ac() else cfg["kbd_max_pct_battery"]
+        kbd_target_pct = max(0.0, min(float(kbd_cap), screen_pct + kbd_delta))
         target_kbd = round((kbd_target_pct / 100.0) * kbd_max)
         if val > 0 and target_kbd < 1:
             target_kbd = 1
-        target_kbd = max(0, min(target_kbd, round((float(cfg["kbd_max_pct"]) / 100.0) * kbd_max)))
+        target_kbd = max(0, min(target_kbd, round((float(kbd_cap) / 100.0) * kbd_max)))
     if kbd_cur != target_kbd:
         set_kbd_brightness(target_kbd)
 
@@ -317,6 +369,7 @@ class AmbientBacklightManager:
         self.lid_was_closed = False
         self.saved_disp_before_lid = None
         self.running = True
+        self.last_ac = is_on_ac()
 
     def update_smoothed_lux(self, raw_lux, alpha=0.30):
         if raw_lux is None:
@@ -361,9 +414,19 @@ class AmbientBacklightManager:
         if time.time() - adj_time >= settle:
             lux = adj.get("lux")
             pct = adj.get("pct")
+            profile = adj.get("profile", get_active_profile())
+
             if lux is not None and pct is not None:
-                rate = self.cfg.get("ml_learning_rate", 0.75)
-                self.model.learn(lux, pct, learning_rate=rate)
+                if self.model.is_training_active():
+                    rate = self.cfg.get("ml_learning_rate", 0.75)
+                    self.model.learn(lux, pct, profile=profile, learning_rate=rate)
+                    # Refresh Waybar module to reflect updated learned points
+                    subprocess.run(
+                        ["pkill", "-RTMIN+6", "waybar"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                    )
                 adj["learned"] = True
                 try:
                     with open(ADJUSTMENT_FILE, "w") as f:
@@ -373,7 +436,31 @@ class AmbientBacklightManager:
                 return True
         return False
 
-    def ramp_display(self, start_val, target_val, disp_max, kbd_max, kbd_should_be_on):
+    def is_manual_override_active(self, current_lux):
+        adj = get_last_adjustment()
+        if not adj:
+            return False
+
+        if adj.get("synced", False):
+            return False
+
+        adj_lux = adj.get("lux")
+        if adj_lux is None or current_lux is None:
+            return False
+
+        # If power supply switched since manual adjustment, release override so profile matches
+        if adj.get("profile") != get_active_profile():
+            return False
+
+        # If ambient light shifted noticeably (> 30% or 0.12 in log space), release override
+        log_cur = math.log10(max(1.0, float(current_lux)))
+        log_adj = math.log10(max(1.0, float(adj_lux)))
+        if abs(log_cur - log_adj) > 0.12:
+            return False
+
+        return True
+
+    def ramp_display(self, start_val, target_val, disp_max, kbd_max, kbd_should_be_on, kbd_cap):
         """
         Gradual smooth transition stepping by ramp_step_pct (0.5% per step).
         Aborts immediately if user presses manual brightness keys.
@@ -401,46 +488,50 @@ class AmbientBacklightManager:
             if kbd_should_be_on:
                 kbd_delta = get_kbd_delta(self.cfg)
                 screen_pct = (int_val / disp_max) * 100.0
-                kbd_target_pct = max(0.0, min(float(self.cfg["kbd_max_pct"]), screen_pct + kbd_delta))
+                kbd_target_pct = max(0.0, min(float(kbd_cap), screen_pct + kbd_delta))
                 target_kbd = round((kbd_target_pct / 100.0) * kbd_max)
                 if int_val > 0 and target_kbd < 1:
                     target_kbd = 1
-                target_kbd = max(0, min(target_kbd, round((float(self.cfg["kbd_max_pct"]) / 100.0) * kbd_max)))
+                target_kbd = max(0, min(target_kbd, round((float(kbd_cap) / 100.0) * kbd_max)))
                 set_kbd_brightness(target_kbd)
 
             time.sleep(interval)
-
-    def is_manual_override_active(self, current_lux):
-        adj = get_last_adjustment()
-        if not adj:
-            return False
-
-        if adj.get("synced", False):
-            return False
-
-        adj_lux = adj.get("lux")
-        if adj_lux is None or current_lux is None:
-            return False
-
-        # If ambient light has shifted noticeably (> 30% or 0.12 in log10 space),
-        # lighting condition has changed, so auto-screen resumes
-        log_cur = math.log10(max(1.0, float(current_lux)))
-        log_adj = math.log10(max(1.0, float(adj_lux)))
-        if abs(log_cur - log_adj) > 0.12:
-            return False
-
-        return True
 
     def sync(self, ramp_screen=False):
         self.cfg = load_config()
         raw_lux = get_raw_lux()
         smoothed_lux = self.update_smoothed_lux(raw_lux)
         lid_angle = get_lid_angle()
+        current_ac = is_on_ac()
+        profile = "ac" if current_ac else "battery"
+        kbd_cap = (
+            self.cfg["kbd_max_pct_ac"] if current_ac else self.cfg["kbd_max_pct_battery"]
+        )
 
         disp_cur, disp_max = get_display_brightness()
         disp_max = disp_max or 500
         kbd_cur, kbd_max = get_kbd_brightness()
         kbd_max = kbd_max or 255
+
+        # Check if power state transitioned (AC plugged/unplugged)
+        if current_ac != self.last_ac:
+            self.last_ac = current_ac
+            # Release any existing manual override so display adapts smoothly to new profile
+            adj = get_last_adjustment()
+            if adj:
+                adj["synced"] = True
+                try:
+                    with open(ADJUSTMENT_FILE, "w") as f:
+                        json.dump(adj, f)
+                except Exception:
+                    pass
+            # Update Waybar module
+            subprocess.run(
+                ["pkill", "-RTMIN+6", "waybar"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
 
         # --- 0. Lid Closed Awareness (Zero conflict with Deep Sleep) ---
         if lid_angle is not None and lid_angle <= 0:
@@ -463,12 +554,14 @@ class AmbientBacklightManager:
             self.lid_was_closed = False
             ramp_screen = False
 
-        # --- 1. Screen Brightness Auto-Adjust (Adaptive ML) ---
+        # --- 1. Screen Brightness Auto-Adjust (Adaptive ML Dual Profile) ---
         if self.cfg["auto_screen"] and smoothed_lux is not None and disp_cur is not None:
             # If manual override is active for current lighting, preserve user's chosen brightness
             if not self.is_manual_override_active(smoothed_lux):
-                target_pct = self.model.predict(smoothed_lux)
-                target_pct = max(self.cfg["screen_min_pct"], min(self.cfg["screen_max_pct"], target_pct))
+                target_pct = self.model.predict(smoothed_lux, profile=profile)
+                target_pct = max(
+                    self.cfg["screen_min_pct"], min(self.cfg["screen_max_pct"], target_pct)
+                )
                 target_val = round((target_pct / 100.0) * disp_max)
 
                 # Deadband threshold to avoid hunting on micro-lux changes (~1.0% = 5 units)
@@ -476,7 +569,9 @@ class AmbientBacklightManager:
                 if abs(target_val - disp_cur) > deadband:
                     kbd_should_on = self.determine_kbd_state(smoothed_lux, lid_angle)
                     if ramp_screen and self.cfg.get("smooth_ramp", True):
-                        self.ramp_display(disp_cur, target_val, disp_max, kbd_max, kbd_should_on)
+                        self.ramp_display(
+                            disp_cur, target_val, disp_max, kbd_max, kbd_should_on, kbd_cap
+                        )
                         disp_cur, _ = get_display_brightness()
                     else:
                         set_display_brightness(target_val)
@@ -491,11 +586,13 @@ class AmbientBacklightManager:
                 except Exception:
                     pass
             if not restore_val:
-                restore_val = round((self.model.predict(smoothed_lux or 485.0) / 100.0) * disp_max)
+                restore_val = round(
+                    (self.model.predict(smoothed_lux or 485.0, profile=profile) / 100.0) * disp_max
+                )
             set_display_brightness(max(10, restore_val))
             disp_cur = restore_val
 
-        # --- 2. Keyboard Backlight Auto-Adjust (Follows Screen with Delta & Max 50% Cap) ---
+        # --- 2. Keyboard Backlight Auto-Adjust (Follows Screen with Profile Cap) ---
         kbd_should_be_on = self.determine_kbd_state(smoothed_lux, lid_angle)
 
         if not kbd_should_be_on:
@@ -503,11 +600,11 @@ class AmbientBacklightManager:
         else:
             kbd_delta = get_kbd_delta(self.cfg)
             screen_pct = (disp_cur / disp_max) * 100.0 if (disp_cur and disp_max) else 30.0
-            kbd_target_pct = max(0.0, min(float(self.cfg["kbd_max_pct"]), screen_pct + kbd_delta))
+            kbd_target_pct = max(0.0, min(float(kbd_cap), screen_pct + kbd_delta))
             target_kbd = round((kbd_target_pct / 100.0) * kbd_max)
             if disp_cur and disp_cur > 0 and target_kbd < 1:
                 target_kbd = 1
-            target_kbd = max(0, min(target_kbd, round((float(self.cfg["kbd_max_pct"]) / 100.0) * kbd_max)))
+            target_kbd = max(0, min(target_kbd, round((float(kbd_cap) / 100.0) * kbd_max)))
 
         if kbd_cur != target_kbd:
             set_kbd_brightness(target_kbd)
@@ -532,13 +629,18 @@ def print_status():
     cfg = load_config()
     raw_lux = get_raw_lux()
     lid_angle = get_lid_angle()
+    current_ac = is_on_ac()
+    profile = "ac" if current_ac else "battery"
+    kbd_cap = cfg["kbd_max_pct_ac"] if current_ac else cfg["kbd_max_pct_battery"]
+
     disp_cur, disp_max = get_display_brightness()
     kbd_cur, kbd_max = get_kbd_brightness()
     kbd_delta = get_kbd_delta(cfg)
     inhibited = is_deep_sleep_inhibited()
 
     model = AdaptiveBrightnessModel()
-    predicted_pct = model.predict(raw_lux) if raw_lux is not None else None
+    predicted_pct = model.predict(raw_lux, profile=profile) if raw_lux is not None else None
+    days_left, hours_left, is_training = model.get_training_time_left()
 
     mgr = AmbientBacklightManager()
     kbd_should_on = mgr.determine_kbd_state(raw_lux, lid_angle)
@@ -547,6 +649,7 @@ def print_status():
     kbd_pct = f"{(kbd_cur * 100 // kbd_max)}%" if (kbd_cur is not None and kbd_max) else "unknown"
 
     print("=== Ambient & Backlight Status ===")
+    print(f"Power Supply:       {'AC Connected (Optimal Experience)' if current_ac else 'Battery Discharging (Power Saver)'}")
     print(f"Ambient Light:      {raw_lux:.1f} lux" if raw_lux is not None else "Ambient Light:      Not Available")
     print(
         f"Lid Angle:          {lid_angle}° (Sleep Mode: {'Active Tasks (keep awake, dim to 0%)' if inhibited else 'Battery Saving (deep sleep on close)'})"
@@ -558,32 +661,91 @@ def print_status():
     print(
         f"Keyboard Auto-On:   {kbd_should_on} (thresholds: ON <= {cfg['kbd_lux_dark']:.0f} lux, OFF >= {cfg['kbd_lux_bright']:.0f} lux)"
     )
-    print(f"Keyboard Cap/Delta: max {cfg['kbd_max_pct']:.0f}% (delta: {kbd_delta:+.1f}%)")
+    print(f"Keyboard Cap/Delta: max {kbd_cap:.0f}% (delta: {kbd_delta:+.1f}%)")
     print(f"Auto-Screen:        {'Enabled' if cfg['auto_screen'] else 'Disabled'}")
     if cfg["auto_screen"] and predicted_pct is not None:
         print(
-            f"ML Model Target:    {predicted_pct:.1f}% (gradual ramp: {cfg['ramp_step_pct']}% step / {cfg['ramp_interval_ms']}ms)"
+            f"ML Model Target:    {predicted_pct:.1f}% (Profile: {profile.upper()}, gradual ramp: {cfg['ramp_step_pct']}% step / {cfg['ramp_interval_ms']}ms)"
         )
-    print(f"ML Learned Count:   {len(model.observations)} manual adjustments recorded")
+    train_status_str = f"ACTIVE ({days_left}d {hours_left}h left)" if is_training else "LOCKED (Training Completed)"
+    print(f"ML Training Mode:   {train_status_str}")
+    bat_count = len(model.profiles["battery"]["observations"])
+    ac_count = len(model.profiles["ac"]["observations"])
+    print(f"ML Learned Count:   {bat_count} on Battery, {ac_count} on AC Power")
 
 
 def print_model_status():
     model = AdaptiveBrightnessModel()
     raw_lux = get_raw_lux()
+    current_ac = is_on_ac()
+    days_left, hours_left, is_training = model.get_training_time_left()
+
     print("=== Adaptive Brightness Machine Learning Model ===")
     print(f"Model File:          {model.filepath}")
-    print(f"Saved On Disk:       {'Yes' if os.path.isfile(model.filepath) else 'No (using baseline defaults)'}")
-    print(f"Learned Adjustments: {len(model.observations)}")
+    print(f"Current Power State: {'AC Power (Optimal Experience)' if current_ac else 'Battery (Power Saver)'}")
+    print(f"Training Mode:       {'ACTIVE (' + str(days_left) + 'd ' + str(hours_left) + 'h left)' if is_training else 'LOCKED (Training Completed)'}")
     if raw_lux is not None:
-        predicted = model.predict(raw_lux)
-        print(f"Current Lux:         {raw_lux:.1f} lux --> Target: {predicted:.1f}%")
-    print("\nAnchors (Ambient Lux -> Target Screen %):")
-    for lux, pct in model.anchors:
-        print(f"  {lux:7.1f} lux  -->  {pct:5.1f}%")
-    if model.observations:
-        print("\nRecent Recorded Adjustments (Lux -> User %):")
-        for obs in model.observations[-5:]:
-            print(f"  {obs[0]:7.1f} lux  -->  {obs[1]:5.1f}%")
+        p_bat = model.predict(raw_lux, profile="battery")
+        p_ac = model.predict(raw_lux, profile="ac")
+        print(f"Current Lux:         {raw_lux:.1f} lux --> Battery Target: {p_bat:.1f}% | AC Target: {p_ac:.1f}%")
+
+    for prof, title in [("battery", "Battery Profile (Power Saver)"), ("ac", "AC Power Profile (Optimal Experience)")]:
+        p_data = model.profiles[prof]
+        print(f"\n[{title}]")
+        print(f"Learned Adjustments: {len(p_data['observations'])}")
+        print("Anchors (Lux -> Screen %):")
+        for lux, pct in p_data["anchors"]:
+            print(f"  {lux:7.1f} lux  -->  {pct:5.1f}%")
+        if p_data["observations"]:
+            print("Recent Observations (Lux -> User %):")
+            for obs in p_data["observations"][-4:]:
+                print(f"  {obs[0]:7.1f} lux  -->  {obs[1]:5.1f}%")
+
+
+def print_waybar_json():
+    """Formats module JSON for Waybar indicator."""
+    model = AdaptiveBrightnessModel()
+    days_left, hours_left, is_active = model.get_training_time_left()
+
+    if not is_active:
+        print(json.dumps({"text": "", "class": "hidden"}))
+        return
+
+    time_str = f"{days_left}d" if days_left > 0 else f"{hours_left}h"
+    current_ac = is_on_ac()
+    prof_name = "AC Power (Experience)" if current_ac else "Battery (Power Saver)"
+    bat_count = len(model.profiles["battery"]["observations"])
+    ac_count = len(model.profiles["ac"]["observations"])
+
+    tooltip = (
+        f"Adaptive Brightness ML Training: ACTIVE\n"
+        f"• Remaining: {days_left} days {hours_left} hours left (auto-locks)\n"
+        f"• Current Profile: {prof_name}\n"
+        f"• F1/F2 keys train your {prof_name} curve\n"
+        f"• Learned Adjustments: {bat_count} Battery / {ac_count} AC\n"
+        f"Click to toggle training mode"
+    )
+
+    payload = {
+        "text": f"[ 󰃠 train: {time_str} ]",
+        "class": "active",
+        "tooltip": tooltip,
+    }
+    print(json.dumps(payload))
+
+
+def toggle_training_mode():
+    model = AdaptiveBrightnessModel()
+    enabled = model.toggle_training()
+    subprocess.run(["pkill", "-RTMIN+6", "waybar"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    print(f"ML Brightness Training Mode: {'Enabled' if enabled else 'Disabled'}")
+
+
+def set_training_days(days):
+    model = AdaptiveBrightnessModel()
+    model.set_training_duration(days)
+    subprocess.run(["pkill", "-RTMIN+6", "waybar"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    print(f"ML Brightness Training Window set to {days} days from now.")
 
 
 def run_daemon():
@@ -604,7 +766,7 @@ def run_daemon():
             # 1. Check if user made a manual adjustment that is ready to learn
             mgr.check_and_learn_manual_adjustment()
 
-            # 2. Check ambient & lid; smoothly glide by 0.5% steps if target shifted
+            # 2. Check ambient, power supply & lid; smoothly glide by 0.5% steps
             mgr.sync(ramp_screen=True)
 
             # 3. Responsive polling: sleep in small intervals to capture manual adjustments
@@ -624,6 +786,9 @@ def main():
     group.add_argument("--daemon", action="store_true", help="Run background monitoring daemon")
     group.add_argument("--sync", action="store_true", help="Sync backlights once immediately")
     group.add_argument("--status", action="store_true", help="Print ambient & backlight status")
+    group.add_argument("--waybar", action="store_true", help="Print Waybar module JSON")
+    group.add_argument("--train-toggle", action="store_true", help="Toggle ML training mode on/off")
+    group.add_argument("--train-days", type=int, metavar="DAYS", help="Set ML training window in days")
     group.add_argument(
         "--manual-adjust",
         type=int,
@@ -634,7 +799,11 @@ def main():
         "--model-status", action="store_true", help="Show Adaptive Brightness ML model details"
     )
     group.add_argument(
-        "--model-reset", action="store_true", help="Reset Adaptive Brightness ML model to factory baseline"
+        "--model-reset",
+        nargs="?",
+        const="all",
+        choices=["all", "battery", "ac"],
+        help="Reset Adaptive Brightness ML model ('all', 'battery', 'ac')",
     )
     group.add_argument(
         "--toggle-auto-screen", action="store_true", help="Toggle screen auto-brightness on/off"
@@ -659,14 +828,21 @@ def main():
         sync_all()
     elif args.status:
         print_status()
+    elif args.waybar:
+        print_waybar_json()
+    elif args.train_toggle:
+        toggle_training_mode()
+    elif args.train_days is not None:
+        set_training_days(args.train_days)
     elif args.manual_adjust is not None:
         record_manual_adjustment(args.manual_adjust)
     elif args.model_status:
         print_model_status()
-    elif args.model_reset:
+    elif args.model_reset is not None:
         model = AdaptiveBrightnessModel()
-        model.reset()
-        print("Adaptive Brightness ML model reset to factory defaults (30% at 485 lux).")
+        target = None if args.model_reset == "all" else args.model_reset
+        model.reset(target)
+        print(f"Adaptive Brightness ML model reset ({args.model_reset}).")
         sync_all()
     elif args.toggle_auto_screen:
         cfg = load_config()

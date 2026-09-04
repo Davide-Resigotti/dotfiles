@@ -49,12 +49,13 @@ The system continuously balances peak performance on **AC power** with aggressiv
 - **Summary**: `mpvpaper` is dynamically replaced by `/usr/bin/swaybg` on battery power or when viewing static images. Eliminates 17 background threads, >33,000 context switches/sec, and over 1.3 GB of memory allocations, reducing wallpaper CPU usage to **0.0%**.
 - **Daemon**: `waypaper-power-watcher.service` smoothly extracts 4K static frames from video wallpapers and hot-swaps between video on AC and static image on battery without screen flash.
 
-### B. Ambient Light Sensor (ALS), Adaptive ML & Backlight Automation
+### B. Ambient Light Sensor (ALS), Dual-Profile ML & Backlight Automation
 - **Full Guide**: [`docs/battery-optimization/display-and-keyboard.md`](battery-optimization/display-and-keyboard.md)
 - **Summary**: Uses the Apple Always-On Processor (`aop-sensors-als`) to continuously monitor room lux (sampling takes 18 µs, < 0.02% CPU).
-- **Machine Learning Adaptive Curve**: Pure Python Kernel Anchor Spline learns personalized brightness preferences from manual <kbd>F1</kbd>/<kbd>F2</kbd> adjustments, starting at a power-saving **30% baseline** in room lighting (~485 lux).
-- **Smooth Gradual Ramping**: Transitions smoothly by **0.5% increments** every 50ms instead of abrupt jumps.
-- **Keyboard Backlight**: Turns **OFF** in bright rooms (> 55 lux) to eliminate ~150 mW – 250 mW of drain. In dim rooms (< 30 lux), it turns **ON** following screen brightness + delta, strictly capped at **50% max** (`128/255`).
+- **Dual-Profile Machine Learning**: Pure Python Kernel Anchor Spline learns separate curves for AC Power (55% baseline at 485 lux, max visual experience) and Battery (30% baseline at 485 lux, power saver).
+- **Training Window & Waybar Indicator**: Actively learns for 7 days with a dedicated `[ 󰃠 train: 7d ]` indicator in Waybar, then automatically locks in your personalized curves.
+- **Smooth Gradual Ramping**: Transitions smoothly by **0.5% increments** every 50ms across light changes and AC plug/unplug events.
+- **Keyboard Backlight**: Turns **OFF** in bright rooms (> 55 lux) to eliminate ~150 mW – 250 mW of drain. In dim rooms (< 30 lux), it turns **ON** following screen brightness + delta, capped at **50% max** on battery and **75% max** on AC.
 - **Lid Clamshell**: Dims panel and keyboard to 0% when closed while deep sleep is inhibited for active tasks.
 
 ### C. System-Level & Hardware Power Tuning
@@ -71,12 +72,13 @@ The system continuously balances peak performance on **AC power** with aggressiv
 
 ## 4. Waybar Interactive Layout Reference
 
-### Left Cluster (Workspaces & Sleep Mode):
+### Left Cluster (Workspaces, Sleep & ML Training):
 ```
-[ 1 2 3 ] [ tray ] [ 󰒲 sleep on ] [  mpris ]
+[ 1 2 3 ] [ tray ] [ 󰒲 sleep on ] [ 󰃠 train: 7d ] [  mpris ]
 ```
 - Click `[ 󰒲 sleep on ]` $\rightarrow$ Toggles to `[ 󰒲 sleep off ]` (inhibits deep sleep on lid close; screen turns off but tasks keep running).
 - Click `[ 󰒲 sleep off ]` $\rightarrow$ Toggles to `[ 󰒲 sleep on ]` (restores battery-saving deep sleep on lid close).
+- `[ 󰃠 train: 7d ]` $\rightarrow$ Shows active training countdown. Click to toggle training mode or reset timer. Hides automatically when training is complete.
 
 ### Right Cluster (Discharging on Battery):
 ```

@@ -94,6 +94,7 @@ margin-left: 4px;
 #custom-hardware,
 #custom-kdeconnect,
 #custom-sleep,
+#custom-ml_train,
 #battery,
 #pulseaudio {
   min-width: 12px;
@@ -111,12 +112,14 @@ margin-left: 4px;
 #custom-hardware.on,
 #custom-kdeconnect.on,
 #custom-sleep.on,
-#custom-sleep.on label {
+#custom-sleep.on label,
+#custom-ml_train.active {
   color: @accent;
   opacity: 1;
 }
 
-#custom-sleep.off:hover {
+#custom-sleep.off:hover,
+#custom-ml_train:hover {
   opacity: 0.8;
 }
 

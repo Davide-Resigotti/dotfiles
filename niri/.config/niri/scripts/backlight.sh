@@ -32,10 +32,19 @@ case "${1:-}" in
         "$DIR/kbd-backlight-watcher" --model-status
         ;;
     reset-model|model-reset|--model-reset)
-        "$DIR/kbd-backlight-watcher" --model-reset
+        "$DIR/kbd-backlight-watcher" --model-reset "${2:-all}"
         ;;
     reset-bias)
-        "$DIR/kbd-backlight-watcher" --model-reset
+        "$DIR/kbd-backlight-watcher" --model-reset all
+        ;;
+    train-toggle|toggle-train)
+        "$DIR/kbd-backlight-watcher" --train-toggle
+        ;;
+    train|train-days)
+        "$DIR/kbd-backlight-watcher" --train-days "${2:-7}"
+        ;;
+    waybar)
+        "$DIR/kbd-backlight-watcher" --waybar
         ;;
     kbd-up)
         "$DIR/kbd-backlight-watcher" --kbd-up
@@ -82,7 +91,7 @@ case "${1:-}" in
         "$DIR/kbd-backlight-watcher" --status
         ;;
     *)
-        echo "usage: $0 up|down|kbd-up|kbd-down|kbd-toggle|kbd-set <val>|sync|status|model|reset-model|toggle-auto-screen|lid-close|lid-open" >&2
+        echo "usage: $0 up|down|kbd-up|kbd-down|kbd-toggle|kbd-set <val>|sync|status|model|reset-model [all|battery|ac]|train [days]|train-toggle|waybar|toggle-auto-screen|lid-close|lid-open" >&2
         exit 1
         ;;
 esac

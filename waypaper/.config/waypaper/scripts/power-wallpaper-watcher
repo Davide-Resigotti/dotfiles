@@ -99,6 +99,7 @@ def set_power_profile(is_ac):
         subprocess.run(["sudo", "-n", "/usr/local/bin/hardware-power-toggle", action],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         subprocess.run(["pkill", "-RTMIN+9", "waybar"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        subprocess.run(["pkill", "-RTMIN+6", "waybar"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         print(f"[{time.strftime('%T')}] Hardware power tuning synced ({action}), profile: {profile}", flush=True)
     except Exception as e:
         print(f"Failed to switch power profile: {e}", file=sys.stderr)
