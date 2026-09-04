@@ -1,6 +1,11 @@
 # Battery & Power Optimization Setup Guide
 
-This document provides a complete reference for the power and battery optimization architecture configured on this system.
+This document serves as the central index and architecture overview for the power and battery optimization systems configured on this laptop.
+
+Detailed documentation for each specialized component is organized in the [`docs/battery-optimization/`](battery-optimization/) directory:
+- [**Wallpaper Power Optimization**](battery-optimization/wallpaper.md)
+- [**Ambient Light Sensor & Backlight Automation**](battery-optimization/display-and-keyboard.md)
+- [**System-Level & Hardware Power Tuning**](battery-optimization/system-level.md)
 
 ---
 
@@ -9,13 +14,13 @@ This document provides a complete reference for the power and battery optimizati
 - **Device**: Apple Silicon MacBook Pro (M2 Pro — Blizzard efficiency cores + Avalanche performance cores)
 - **OS**: Fedora Linux Asahi Remix 44 (aarch64, 16k page size)
 - **Desktop Environment**: Niri (Scrollable Tiling Wayland Compositor) + Waybar
-- **Power Subsystem**: Apple macsmc (`macsmc-battery`, `macsmc-ac`), TuneD (`tuned-ppd`)
+- **Power Subsystem**: Apple macsmc (`macsmc-battery`, `macsmc-ac`), TuneD (`tuned-ppd`), AOP Sensors (`aop-sensors-als`, `aop-sensors-las`)
 
 ---
 
-## 2. Architecture Overview
+## 2. High-Level Architecture Overview
 
-The system dynamically adapts its resource usage based on whether it is connected to **AC power** or discharging on **Battery**.
+The system continuously balances peak performance on **AC power** with aggressive power savings on **Battery**:
 
 ```
                            ┌───────────────────────────────┐
@@ -32,114 +37,45 @@ The system dynamically adapts its resource usage based on whether it is connecte
   • KDE Connect: Running (toggle hidden)         • KDE Connect: Stopped ([ 󰄡 off ])
   • Akonadi & MySQL: Running                     • Akonadi & MySQL: Stopped (frees 534MB)
   • Waybar Toggles: Hidden                       • Waybar Toggles: Interactive buttons
+  • Ambient Backlight: Always active             • Ambient Backlight: Always active
 ```
 
 ---
 
-## 3. Detailed Component Configuration
+## 3. Optimization Domains
 
-### A. Smart Wallpaper Engine (`mpvpaper` ↔ `swaybg`)
+### A. Dynamic Wallpaper Power Management
+- **Full Guide**: [`docs/battery-optimization/wallpaper.md`](battery-optimization/wallpaper.md)
+- **Summary**: `mpvpaper` is dynamically replaced by `/usr/bin/swaybg` on battery power or when viewing static images. Eliminates 17 background threads, >33,000 context switches/sec, and over 1.3 GB of memory allocations, reducing wallpaper CPU usage to **0.0%**.
+- **Daemon**: `waypaper-power-watcher.service` smoothly extracts 4K static frames from video wallpapers and hot-swaps between video on AC and static image on battery without screen flash.
 
-- **Problem Solved**: `mpvpaper` was previously running 24/7 even for static images or paused video on battery, consuming 17 threads, ~175 MB to 1.3 GB RAM, active OpenGL subsurfaces, and >33,000 context switches.
-- **Smart Dispatcher**: `~/.local/bin/mpvpaper`
-  - Real ELF binary renamed to `~/.local/bin/mpvpaper-bin`.
-  - Dispatcher detects power state and media extension:
-    - **On Battery OR static photos**: spawns `/usr/bin/swaybg` (1 thread, 14 MB RAM, 0% CPU, 0 GPU wakeups) and terminates `mpvpaper-bin`.
-    - **On AC power with videos**: passes arguments to `mpvpaper-bin` for 60fps hardware-decoded video playback.
-- **Power Transition Daemon**: `~/.config/waypaper/scripts/power-wallpaper-watcher`
-  - Managed by systemd user service `waypaper-power-watcher.service`.
-  - Listens to kernel power events via `udevadm monitor -u -s power_supply`.
-  - On AC disconnect: extracts a static 4K frame to `~/.cache/wallpaper-frames/<name>.jpg` (if video), seamlessly maps it with `swaybg`, and terminates `mpvpaper-bin`.
-  - On AC connect: starts `mpvpaper-bin` with the video and terminates `swaybg`.
-- **Manual Rotation**: `~/.config/waypaper/scripts/waypaper-cycle-once`
-  - Bound to `Mod+Shift+W` in Niri. Calls `waypaper --random` through the smart dispatcher without hardcoded socket dependencies.
-- **Accent Theme Extraction**: `~/.config/waypaper/scripts/set-wallpaper-accent`
-  - Instantly updates Pywal/Niri/Waybar accents without waiting on socket timeouts.
+### B. Ambient Light Sensor (ALS) & Backlight Automation
+- **Full Guide**: [`docs/battery-optimization/display-and-keyboard.md`](battery-optimization/display-and-keyboard.md)
+- **Summary**: Uses the Apple Always-On Processor (`aop-sensors-als`) to continuously monitor room lux (sampling takes 18 µs, < 0.02% CPU).
+- **Keyboard Power Savings**: In bright rooms (> 55 lux), the keyboard backlight automatically turns **OFF**, eliminating ~150 mW – 250 mW of wasted LED power. In dim rooms (< 30 lux), it turns **ON** proportionally to screen brightness.
+- **Screen Auto-Brightness**: Applies a smooth perceptual logarithmic curve in 5% steps with user bias memory (<kbd>F1</kbd>/<kbd>F2</kbd>).
 
----
-
-### B. Hardware Power Saver & Waybar Toggle
-
-- **Problem Solved**:
-  - The Genesys SD Card reader (`0000:02:00.0`) was pinned in active D0 state (`power/control = on`).
-  - PCIe ASPM was running in `[default]` mode instead of deep link power states.
-  - TuneD was set to `manual` and did not auto-tune dirty page writebacks on battery.
-- **Persistent Root Configuration**:
-  - `/etc/udev/rules.d/99-pci-pm.rules`: Enables runtime autosuspend (D3hot/D3cold) for the SD card reader when no card is inserted.
-  - `/etc/tmpfiles.d/aspm.conf`: Sets `/sys/module/pcie_aspm/parameters/policy` to `powersupersave`.
-  - `/etc/sudoers.d/99-hardware-power-toggle`: Grants passwordless execution for `/usr/local/bin/hardware-power-toggle`.
-- **System Controller**: `/usr/local/bin/hardware-power-toggle`
-  - `on`: sets ASPM `powersupersave`, SD card `auto`, TuneD `power-saver` (`vm.laptop_mode=5`, `dirty_writeback_centisecs=1500`).
-  - `off`: sets ASPM `default`, SD card `on`, TuneD `balanced` (`vm.laptop_mode=0`, `dirty_writeback_centisecs=500`).
-  - `toggle` / `status`.
-- **Waybar Module**: `custom/hardware` in `~/.config/waybar/config.jsonc`
-  - Exec script: `~/.config/waybar/scripts/hardware-power-toggle.sh`
-  - **On Battery**: Shows `[ 󰍛 hw off ]` (hardware performance limited for battery savings). Clicking it toggles to `[ 󰍛 hw on ]` (full performance).
-  - **On AC Power**: Automatically hidden from the bar.
+### C. System-Level & Hardware Power Tuning
+- **Full Guide**: [`docs/battery-optimization/system-level.md`](battery-optimization/system-level.md)
+- **Summary**:
+  - **Hardware Eco Mode**: Automatically enables PCIe ASPM `powersupersave`, Genesys SD Card reader autosuspend (`D3hot`/`D3cold`), and TuneD `power-saver` (`vm.laptop_mode=5`, 15-second writebacks). Interactive toggle in Waybar: `[ 󰍛 hw off ]`.
+  - **Dynamic KDE Connect**: Prevents background Wi-Fi UDP discovery broadcasts on battery. Toggleable on demand via Waybar: `[ 󰄡 off ]`.
+  - **Akonadi & MySQL**: Shuts down background PIM database servers on battery, freeing >534 MB of RAM and 108 background threads.
+  - **Waybar Zero-Forking**: Replaced shell subshells with native formatting, eliminating ~14,400 process forks/hr.
+  - **Session Autostarts**: Suppresses background bloat (`geoclue`, `kunifiedpush`, `sealertauto`, `ModemManager`).
 
 ---
 
-### C. Dynamic KDE Connect
+## 4. Waybar Interactive Layout Reference
 
-- **Problem Solved**: KDE Connect continuously broadcasts UDP discovery packets on Wi-Fi and runs background listener threads.
-- **Waybar Module**: `custom/kdeconnect` in `~/.config/waybar/config.jsonc`
-  - Exec script: `~/.config/waybar/scripts/kdeconnect-toggle.sh`
-  - **On Battery**: Disabled by default to save Wi-Fi wakeups. Displays `[ 󰄡 off ]` in Waybar. Clicking it turns KDE Connect on (`[ 󰄡 on ]`) if syncing is needed.
-  - **On AC Power**: Enabled automatically; toggle is hidden from Waybar.
-
----
-
-### D. Power-Aware Akonadi & MySQL
-
-- **Problem Solved**: `/etc/xdg/autostart/org.kde.kalendarac.desktop` was pulling in `kalendarac`, `akonadi_control`, `akonadiserver`, `mysqld` (MySQL), and 13 Akonadi agent processes under Niri, using over **534 MB RAM** and **108 background threads**.
-- **Management**:
-  - Automatically handled by `power-wallpaper-watcher`.
-  - **On Battery**: Gracefully stops `kalendarac` and `akonadi_control.service`, stopping database heartbeats and background memory overhead.
-  - **On AC Power**: Restarts `kalendarac` for full calendar reminders and PIM synchronization.
-  - **On Demand**: If any KDE PIM application (KMail, Kalendar) is launched on battery, Akonadi is socket-activated automatically via D-Bus.
-
----
-
-### E. Waybar Subshell & Fork Reduction
-
-- **Problem Solved**: `custom/separator5` and `custom/separator6` were running subshell scripts every 2 seconds (`sh`, `pgrep`, `playerctl`, `grep`) just to show brackets around the music title, creating ~14,400 process forks per hour.
-- **Changes in `~/.config/waybar/config.jsonc`**:
-  - Removed `custom/separator5` and `custom/separator6`.
-  - Added brackets directly into the native `mpris` module:
-    ```jsonc
-    "mpris": {
-      "format": "[  {dynamic} ]",
-      "format-paused": "<span color='grey'>[ {status_icon} {dynamic} ]</span>"
-    }
-    ```
-  - Increased `memory` polling interval from 2s to 10s.
-  - Increased `battery` polling interval from 5s to 15s.
-  - Result: **0 child process forks** from Waybar.
-
----
-
-### F. Session Autostart & System Daemons
-
-- **Autostart Overrides** in `~/.config/autostart/` (managed via `dotfiles/autostart`):
-  - `geoclue-demo-agent.desktop` (`NotShowIn=niri;`)
-  - `org.kde.kunifiedpush-distributor.desktop` (`NotShowIn=niri;`)
-  - `sealertauto.desktop` (`NotShowIn=niri;`)
-- **System Daemons**:
-  - `ModemManager.service`: Disabled (no WWAN cellular card on MacBook).
-  - `cups.service`: Disabled 24/7 daemon; enabled on-demand `cups.socket`.
-
----
-
-## 4. Waybar Layout Reference
-
-### On Battery:
+### Discharging on Battery:
 ```
 [ 󰍛 hw off ] [ 󰄡 off ] [ bat 41% 󰿟 vol 40% 󰿟 mem 22% 󰿟 cpu 2% ]
 ```
-- Click `[ 󰍛 hw off ]` → Toggles to `[ 󰍛 hw on ]` (restores full hardware power/perf).
-- Click `[ 󰄡 off ]` → Toggles to `[ 󰄡 on ]` (starts KDE Connect).
+- Click `[ 󰍛 hw off ]` $\rightarrow$ Toggles to `[ 󰍛 hw on ]` (restores full hardware performance).
+- Click `[ 󰄡 off ]` $\rightarrow$ Toggles to `[ 󰄡 on ]` (starts KDE Connect sync).
 
-### On AC Power:
+### Connected to AC Power:
 ```
 [ bat 80%  󰿟 vol 40% 󰿟 mem 22% 󰿟 cpu 5% ]
 ```
@@ -147,12 +83,13 @@ The system dynamically adapts its resource usage based on whether it is connecte
 
 ---
 
-## 5. Useful Commands & Verification
+## 5. Master Commands Reference
 
 | Action | Command |
 | :--- | :--- |
 | **Check battery discharge rate** | `cat /sys/class/power_supply/macsmc-battery/power_now` |
-| **Check battery details** | `upower -i /org/freedesktop/UPower/devices/battery_macsmc_battery` |
+| **Check ambient light & backlight** | `~/.config/niri/scripts/backlight.sh status` |
+| **Toggle screen auto-brightness** | `~/.config/niri/scripts/backlight.sh toggle-auto-screen` (or `Mod+Shift+B`) |
 | **Check active TuneD profile** | `tuned-adm active` |
 | **Check PCIe ASPM policy** | `cat /sys/module/pcie_aspm/parameters/policy` |
 | **Check SD card power state** | `cat /sys/bus/pci/devices/0000:02:00.0/power/control` |
@@ -162,26 +99,38 @@ The system dynamically adapts its resource usage based on whether it is connecte
 | **Toggle hardware eco mode** | `~/.config/waybar/scripts/hardware-power-toggle.sh --toggle` |
 | **Toggle KDE Connect** | `~/.config/waybar/scripts/kdeconnect-toggle.sh --toggle` |
 | **Restart power watcher service** | `systemctl --user restart waypaper-power-watcher.service` |
+| **Restart backlight watcher service** | `systemctl --user restart kbd-backlight-watcher.service` |
 | **Restart Waybar** | `systemctl --user restart waybar.service` |
 
 ---
 
 ## 6. Files & Dotfiles Mapping
 
-All user configurations are tracked under GNU Stow in `~/dotfiles/`:
+All power optimization configurations are tracked under GNU Stow in `~/dotfiles/`:
 
-- `dotfiles/waypaper/.config/waypaper/scripts/power-wallpaper-watcher`
-- `dotfiles/waypaper/.config/waypaper/scripts/set-wallpaper-accent`
-- `dotfiles/waypaper/.config/waypaper/scripts/waypaper-cycle-once`
-- `dotfiles/waybar/.config/waybar/config.jsonc`
-- `dotfiles/waybar/.config/waybar/style.css`
-- `dotfiles/waybar/.config/waybar/scripts/hardware-power-toggle.sh`
-- `dotfiles/waybar/.config/waybar/scripts/kdeconnect-toggle.sh`
-- `dotfiles/autostart/.config/autostart/*.desktop`
-- `dotfiles/shell/apply-hardware-power-tuning.sh`
-- `~/.local/bin/mpvpaper` (smart wrapper)
-- `~/.local/bin/mpvpaper-bin` (compiled executable)
-- `/usr/local/bin/hardware-power-toggle` (root controller)
-- `/etc/sudoers.d/99-hardware-power-toggle`
-- `/etc/udev/rules.d/99-pci-pm.rules`
-- `/etc/tmpfiles.d/aspm.conf`
+- **Documentation**:
+  - `docs/battery-optimization.md` (this index file)
+  - `docs/battery-optimization/wallpaper.md`
+  - `docs/battery-optimization/display-and-keyboard.md`
+  - `docs/battery-optimization/system-level.md`
+- **Backlight & Ambient Sensing**:
+  - `niri/.config/niri/ambient.conf`
+  - `niri/.config/niri/scripts/kbd-backlight-watcher`
+  - `niri/.config/niri/scripts/backlight.sh`
+  - `niri/.config/systemd/user/kbd-backlight-watcher.service`
+  - `udev/etc/udev/rules.d/90-apple-backlight.rules`
+- **Wallpaper Power Management**:
+  - `waypaper/.config/waypaper/scripts/power-wallpaper-watcher`
+  - `waypaper/.config/systemd/user/waypaper-power-watcher.service`
+  - `waypaper/.config/waypaper/scripts/set-wallpaper-accent`
+  - `waypaper/.config/waypaper/scripts/waypaper-cycle-once`
+  - `~/.local/bin/mpvpaper` (smart wrapper)
+  - `~/.local/bin/mpvpaper-bin` (compiled executable)
+- **Hardware & Session Power Tuning**:
+  - `/usr/local/bin/hardware-power-toggle` (root controller)
+  - `waybar/.config/waybar/scripts/hardware-power-toggle.sh`
+  - `waybar/.config/waybar/scripts/kdeconnect-toggle.sh`
+  - `/etc/sudoers.d/99-hardware-power-toggle`
+  - `/etc/udev/rules.d/99-pci-pm.rules`
+  - `/etc/tmpfiles.d/aspm.conf`
+  - `autostart/.config/autostart/*.desktop`

@@ -108,7 +108,10 @@ Whenever the theme or wallpaper changes, `set-accent <name>` writes:
 
 ### 3. Power & Battery Optimization Architecture
 
-The system features dynamic power management tailored for Apple Silicon (M2 Pro), documented in detail in [`docs/battery-optimization.md`](docs/battery-optimization.md):
+The system features dynamic power management tailored for Apple Silicon (M2 Pro), documented in [`docs/battery-optimization.md`](docs/battery-optimization.md) and organized into dedicated sub-guides in [`docs/battery-optimization/`](docs/battery-optimization/):
+- [**Wallpaper Power Optimization**](docs/battery-optimization/wallpaper.md)
+- [**Ambient Light Sensor & Backlight Automation**](docs/battery-optimization/display-and-keyboard.md)
+- [**System-Level & Hardware Power Tuning**](docs/battery-optimization/system-level.md)
 
 - **Hardware Power Saver (`[ 󰍛 hw off ]` / `[ 󰍛 hw on ]`)**:
   - An interactive toggle in Waybar appears only when on battery.
@@ -128,6 +131,8 @@ The system features dynamic power management tailored for Apple Silicon (M2 Pro)
   - Disabled `ModemManager.service` (no WWAN card on MacBook) and converted CUPS to on-demand `cups.socket`.
 
 ### 4. Ambient Light Sensor (ALS) & Backlight Automation (`kbd-backlight-watcher`)
+
+*(Detailed guide: [`docs/battery-optimization/display-and-keyboard.md`](docs/battery-optimization/display-and-keyboard.md))*
 
 - **Hardware Ambient Light Sensor (ALS)**:
   - Continuously samples the room illuminance via Apple Silicon's ultra-low-power AOP sensor (`aop-sensors-als`).
