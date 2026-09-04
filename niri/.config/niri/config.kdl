@@ -33,7 +33,8 @@ input {
         // off
         natural-scroll
 	accel-profile "adaptive"
-        accel-speed 0.2
+        accel-speed 0
+        scroll-factor 0.3
 	tap
 	dwt // disable when typing
     }
@@ -70,10 +71,12 @@ input {
      position x=2016 y=0 //x=2016 because of 3024/1.5=2016 according to the specs of the main monitor
  }
 
+// Internal Liquid Retina XDR ProMotion panel:
+// Defaults to 120Hz. power-wallpaper-watcher dynamically switches between
+// 120Hz on AC Power (ProMotion) and 60Hz on Battery (Power Saver).
 output "eDP-1" {
-    mode "3024x1890@60.000"
+    mode "3024x1890@120.000"
     scale 1.5
-    variable-refresh-rate
     focus-at-startup
     position x=0 y=0
 }
@@ -246,6 +249,9 @@ include optional=true "accent.kdl"
 
 spawn-sh-at-startup "sleep 1 && $HOME/.config/waypaper/scripts/waypaper-rotate &"
 spawn-at-startup "niri-copy-paste daemon"
+
+// Automatically power off monitors when idle for 10 minutes (600s), restore on user input
+spawn-at-startup "swayidle" "-w" "timeout" "600" "niri msg action power-off-monitors" "resume" "niri msg action power-on-monitors"
 
 // Waybar is managed by the systemd user service (waybar.service).
 // Keep this disabled to avoid starting a second instance.

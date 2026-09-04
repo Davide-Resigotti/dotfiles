@@ -13,6 +13,8 @@ Display and keyboard backlights represent the single largest continuous battery 
 | **Keyboard Backlight LEDs** | **~100 mW – 300 mW** | **Saves ~150 – 250 mW** by shutting off LEDs when ambient light suffices (completely **0% above 15 lux on Battery**, and **above 35 lux on AC**). Smoothly dissolves over ~1.5–2.0s. Capped at **50% on Battery** and **75% on AC**. |
 | **Display (Battery Profile)** | **~500 mW – 1,200 mW** | Automatically scales to a power-saving **30% baseline** in room lighting (~485 lux), saving **~1.0 W to 1.5 W** compared to high-brightness defaults. |
 | **Display (AC Power Profile)** | **~1,200 mW – 3,500 mW** | Automatically scales to a vibrant **55% baseline** in room lighting (~485 lux) to maximize visual quality without battery concern. |
+| **ProMotion Dynamic Refresh Rate** | **~500 mW – 1,000 mW** | Automatically switches internal panel to **120 Hz on AC Power** (fluid ProMotion experience) and **60 Hz on Battery** (cuts GPU/DCP render workload by 50%), saving **~0.5 W to 1.0 W** on battery. |
+| **Idle Screen DPMS Blanking** | **~1,500 mW – 3,500 mW** | `swayidle` automatically powers down monitors via DRM DPMS after 10 minutes of inactivity, waking instantly upon keyboard/mouse input. |
 | **Lid-Closed Clamshell / Sleep State** | **~500 mW – 2,500 mW** | In `sleep on` mode, suspends to `s2idle`. In `sleep off` mode (active tasks), dims panel & keyboard to 0% and commands **Niri DRM to power down output (`eDP-1 off` / `power-off-monitors`)**, eliminating the hardware DCP 1% glow and reducing panel power to **0.0 W**. |
 | **ALS Sensor Hardware (AOP)** | **< 1 mW (microwatts)** | Apple Always-On Processor (AOP) monitors the photodiode in hardware at near-zero power. |
 | **Software Polling Overhead** | **~0.001 mW (< 0.02% CPU)** | Pure Python standard library implementation; memory footprint is **< 15 MB**. |
@@ -190,6 +192,25 @@ Physical sensors on Apple laptops can suffer from mechanical flex or calibration
 #### Sleep Mode Integration
 - **Deep Sleep Mode ON** (`[ 󰒲 sleep on ]`): Closing the lid allows `systemd-logind` to suspend the MacBook into `s2idle` deep sleep as normal.
 - **Deep Sleep Mode OFF** (`[ 󰒲 sleep off ]` / Active Tasks): Dims screen and keyboard to **0%**, powers down the DRM output via Niri, and keeps all CPU cores, network sockets, and user background tasks executing at full power with zero display draw.
+
+### F. Dynamic 120Hz/60Hz Refresh Rate & Idle DPMS Blanking
+
+#### Why True 1–120Hz Variable Refresh Rate (VRR) is Not Available on Asahi Linux
+In macOS, Apple implements dynamic 1–120Hz ProMotion via closed, proprietary Display Coprocessor (DCP) firmware that continuously adjusts vertical blanking intervals (vblank) per frame in real-time, dropping to 10–24Hz on static screens and boosting to 120Hz during trackpad gestures or scrolling.
+
+Under Linux Asahi, reverse-engineering Apple's DCP has enabled discrete display modes (`3024x1890@120.000`, `60.000`, `59.940`, `50.000`, `48.000`), but the internal eDP DRM connector (`card2-eDP-1`) **does not expose the `vrr_capable` property** to the Linux kernel DRM subsystem (`vrr_supported: false`). While kernel developers are actively exploring experimental patches (`appledrm.force_vrr`), true per-frame adaptive VRR is not yet available or stable for end users.
+
+#### Automated AC vs. Battery Mode Switching
+To bridge this gap and maximize battery life without sacrificing smoothness, `waypaper-power-watcher` coordinates automated refresh rate switching via Niri IPC:
+- **On AC Power**: Automatically sets `eDP-1` to **120 Hz** (`3024x1890@120.000`), providing the fluid ProMotion experience.
+- **On Battery**: Automatically sets `eDP-1` to **60 Hz** (`3024x1890@60.000`). This cuts compositor frame generation, GPU buffer swaps, and DCP packet processing in half, **saving ~0.5 W to 1.0 W of continuous power**.
+- Transitions happen in ~10 milliseconds without screen flashes, tearing, or session restarts.
+
+#### Idle Screen DPMS Blanking (`swayidle`)
+- Automatically spawns `swayidle` at Niri startup to monitor user idle state via Wayland's `ext-idle-notify-v1` protocol.
+- **Timeout**: Powers off all monitors (`niri msg action power-off-monitors`) after **10 minutes (600s)** of inactivity.
+- **Resume**: Restores monitors instantly (`niri msg action power-on-monitors`) upon trackpad touch or keypress.
+- **Inhibition**: Automatically respects Wayland idle inhibitors (e.g. video playback in Firefox or media players will not turn off the screen).
 
 ---
 

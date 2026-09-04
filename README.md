@@ -148,7 +148,9 @@ The system features dynamic power management tailored for Apple Silicon (M2 Pro)
   - **Soft Glide Ramping**: Transitions brightness 1 unit every 30ms over ~1.5–2.0s without sudden flickers.
 - **Lid Clamshell & Niri DRM DPMS**:
   - Multi-source `is_lid_closed()` evaluates LAS angle $\le 3^\circ$, systemd-logind D-Bus, UPower D-Bus, and runtime state file.
-  - In keep-awake mode (`[ 󰒲 sleep off ]`), issues Niri DRM output commands (`niri msg action power-off-monitors` or `output eDP-1 off`), completely eliminating Apple Silicon's hardware DCP 1% glow and cutting panel draw to 0.0 W.
+- **Dynamic ProMotion & Idle DPMS**:
+  - Automatically switches internal Liquid Retina XDR panel between **120 Hz on AC Power** (fluid ProMotion) and **60 Hz on Battery** (saving ~0.5 W – 1.0 W).
+  - Automatically powers down monitors after 10 minutes of inactivity via `swayidle`, restoring instantly on keyboard or mouse input.
 - **Keybindings**:
   - Display Brightness: <kbd>F1</kbd> / <kbd>F2</kbd> (steps by 5% and trains active ML profile).
   - Keyboard Scale: <kbd>Mod</kbd>+<kbd>BrightnessUp</kbd> / <kbd>Mod</kbd>+<kbd>BrightnessDown</kbd> fine-tunes keyboard delta.

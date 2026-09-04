@@ -33,6 +33,7 @@ The system continuously balances peak performance on **AC power** with aggressiv
           [ AC Power Connected ]                        [ Battery Discharging ]
   ────────────────────────────────────────       ────────────────────────────────────────
   • Wallpaper: mpvpaper-bin (60fps video)         • Wallpaper: swaybg (0% CPU, 14MB RAM)
+  • Display: 120Hz ProMotion (fluid UI)          • Display: 60Hz Eco Mode (saves ~0.5–1W)
   • Hardware Mode: Standard (balanced)           • Hardware Mode: Eco ([ 󰍛 hw off ])
   • KDE Connect: Running (toggle hidden)         • KDE Connect: Stopped ([ 󰄡 off ])
   • Akonadi & MySQL: Running                     • Akonadi & MySQL: Stopped (frees 534MB)
@@ -56,6 +57,7 @@ The system continuously balances peak performance on **AC power** with aggressiv
 - **Training Window & Waybar Indicator**: Actively learns for 7 days with a dedicated `[ 󰃠 train: 7d ]` indicator in Waybar, then automatically locks in your personalized curves.
 - **Smooth Gradual Ramping**: Transitions smoothly by **0.5% increments** every 50ms across light changes and AC plug/unplug events.
 - **Continuous Keyboard Backlight**: Uses cubic Hermite smoothstep fade with distinct thresholds for Battery (> 15 lux completely OFF) and AC Power (> 35 lux completely OFF). Dissolves gradually over ~1.5–2.0 seconds (1 unit / 30ms) instead of sudden single commands. Capped at **50% max** on battery and **75% max** on AC.
+- **Dynamic Refresh Rate & Idle DPMS**: Automatically switches between **120 Hz on AC Power** and **60 Hz on Battery** (~0.5–1.0 W savings). Automatically blanks monitors via `swayidle` after 10 minutes of user inactivity.
 - **Lid Clamshell & Niri DRM DPMS**: In keep-awake mode (`sleep off`), combines multi-source lid sensing with Niri DRM compositor controls (`niri msg action power-off-monitors` / `output eDP-1 off`), completely cutting panel power to 0.0 W and overcoming Apple DCP hardware minimum iDAC 1% glow.
 
 ### C. System-Level & Hardware Power Tuning

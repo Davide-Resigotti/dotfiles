@@ -47,6 +47,7 @@ The real compiled `mpvpaper` binary was renamed to `~/.local/bin/mpvpaper-bin`. 
 - Uses `udevadm monitor -u -s power_supply` to wait asynchronously for hardware AC plug/unplug events without busy polling.
 - When on battery, extracts a pristine 4K video frame (`ffmpeg -ss 00:00:01 -vframes 1 -q:v 2`) and saves it to `~/.cache/wallpaper-frames/<filename>.jpg`.
 - Instantly swaps from video to static frame without screen flash.
+- **Display Refresh Rate Coordination**: Coordinates eDP-1 ProMotion switching, setting the internal panel to **120 Hz on AC Power** and **60 Hz on Battery**, saving ~0.5 W to 1.0 W of continuous GPU/DCP power.
 
 ### C. Manual Wallpaper Cycling (`waypaper-cycle-once`)
 - Bound to <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>W</kbd> in Niri.

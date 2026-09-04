@@ -981,7 +981,27 @@ def print_status():
     print(
         f"Lid State:            {lid_info} (Sleep Mode: {'Active Tasks (keep awake, dim to 0%)' if inhibited else 'Battery Saving (deep sleep on close)'})"
     )
-    print(f"Display:              {disp_cur}/{disp_max} ({disp_pct})")
+    disp_mode_str = ""
+    try:
+        res = subprocess.run(
+            ["niri", "msg", "-j", "outputs"],
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+            check=False,
+        )
+        if res.returncode == 0:
+            data = json.loads(res.stdout)
+            edp = data.get("eDP-1")
+            if edp and "current_mode" in edp and "modes" in edp:
+                m = edp["modes"][edp["current_mode"]]
+                hz = round(m.get("refresh_rate", 0) / 1000.0)
+                tag = "ProMotion" if hz >= 100 else "Eco"
+                disp_mode_str = f" [{m.get('width')}x{m.get('height')} @ {hz}Hz {tag}]"
+    except Exception:
+        pass
+
+    print(f"Display:              {disp_cur}/{disp_max} ({disp_pct}){disp_mode_str}")
     print(f"Keyboard:             {kbd_cur}/{kbd_max} ({kbd_pct}) [Target: {target_kbd}/{kbd_max}]")
     print(f"Keyboard Ambient Fade:{fade * 100:5.1f}% illumination (smooth falloff between {dark:.0f}-{bright:.0f} lux on {'AC' if current_ac else 'Battery'})")
     print(f"Keyboard Fade Speed:  {cfg.get('kbd_ramp_step', 1)} unit / {cfg.get('kbd_ramp_interval_ms', 30)}ms (~1.5-2.0s gradual glide)")

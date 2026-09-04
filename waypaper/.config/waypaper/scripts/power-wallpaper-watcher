@@ -6,9 +6,11 @@ Coordinates power-saving features across the system on AC vs Battery:
 2. Power profile: switches TuneD via D-Bus to 'power-saver' on battery, 'balanced' on AC.
 3. KDE Connect: turns off KDE Connect on battery to eliminate background UDP scans (toggleable in Waybar).
 4. Akonadi & MySQL: stops Kalendarac/Akonadi on battery to save ~534MB RAM and disk writes; resumes on AC.
+5. Display Refresh Rate: switches eDP-1 to 120Hz ProMotion on AC, and 60Hz Eco mode on Battery.
 """
 
 import glob
+import json
 import os
 import select
 import subprocess
@@ -178,11 +180,44 @@ def sync_wallpaper(is_ac):
             )
 
 
+def sync_refresh_rate(is_ac):
+    target_mode = "3024x1890@120.000" if is_ac else "3024x1890@60.000"
+    target_hz = 120000 if is_ac else 60000
+    try:
+        # Avoid redundant mode switch IPC calls if eDP-1 is already at target rate
+        res = subprocess.run(
+            ["niri", "msg", "-j", "outputs"],
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+            check=False,
+        )
+        if res.returncode == 0:
+            outputs = json.loads(res.stdout)
+            edp = outputs.get("eDP-1")
+            if edp and "current_mode" in edp and "modes" in edp:
+                cur_idx = edp["current_mode"]
+                if 0 <= cur_idx < len(edp["modes"]):
+                    cur_hz = edp["modes"][cur_idx].get("refresh_rate", 0)
+                    if cur_hz == target_hz:
+                        return
+        subprocess.run(
+            ["niri", "msg", "output", "eDP-1", "mode", target_mode],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        print(f"[{time.strftime('%T')}] eDP-1 refresh rate set to {target_mode} ({'AC 120Hz ProMotion' if is_ac else 'Battery 60Hz Eco'})", flush=True)
+    except Exception as e:
+        print(f"Failed to switch refresh rate: {e}", file=sys.stderr)
+
+
 def sync_all(is_ac):
     set_power_profile(is_ac)
     sync_kdeconnect(is_ac)
     sync_akonadi(is_ac)
     sync_wallpaper(is_ac)
+    sync_refresh_rate(is_ac)
 
 
 def main():
