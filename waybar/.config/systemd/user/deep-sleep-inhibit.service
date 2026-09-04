@@ -1,0 +1,11 @@
+[Unit]
+Description=Inhibit lid-close sleep (keep active tasks running with screen off)
+Documentation=https://github.com/Alexays/Waybar
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/systemd-inhibit --what=handle-lid-switch --who="Waybar Deep Sleep Toggle" --why="Active tasks running with lid closed" --mode=block sleep infinity
+Restart=no
+
+[Install]
+WantedBy=default.target

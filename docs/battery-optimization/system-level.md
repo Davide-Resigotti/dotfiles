@@ -99,7 +99,27 @@ Overrides disable unneeded desktop daemons when running Niri:
 
 ---
 
-## 6. Verification & Inspection Commands
+## 6. Lid Deep Sleep Mode & Active Tasks Toggle
+
+### Problem Addressed
+Closing the laptop lid triggers `systemd-logind`'s `HandleLidSwitch=suspend` by default, putting the machine into `s2idle` suspend. While ideal for conserving battery in a backpack, this prevents long-running tasks—such as code compilations, machine learning training, background downloads, or Home Assistant automations—from completing when the lid is closed.
+
+### Solution Architecture
+- **Inhibition Mechanism**: Uses `systemd-inhibit` with `--what=handle-lid-switch` running as a user service (`deep-sleep-inhibit.service`). Systemd-logind always honors low-level inhibitor locks (`handle-lid-switch`), even for unprivileged user sessions without requiring sudo.
+- **Display & Backlight Handling**:
+  - When the inhibitor is active and the lid closes, `systemd-logind` skips suspend.
+  - Niri automatically disables and blanks the internal laptop monitor (`eDP-1`).
+  - `kbd-backlight-watcher` detects the lid angle closure (`<= 0°`) and shuts off the keyboard backlight.
+  - All CPU cores, network interfaces, and user background tasks continue running at full speed.
+  - When the lid opens, Niri re-enables the panel and `kbd-backlight-watcher` restores illumination.
+- **Waybar Integration (`custom/sleep`)**:
+  - Positioned on the left side of Waybar: `[ 󰒲 sleep on ]` / `[ 󰒲 sleep off ]`.
+  - Follows the same visual pattern as the KDE toggle: accented with primary color (`@accent`) when enabled (`sleep-on`), and dimmed (`opacity: 0.5`) when disabled (`sleep-off`).
+  - Instant UI updates triggered via real-time signal `SIGRTMIN+7`.
+
+---
+
+## 7. Verification & Inspection Commands
 
 | Component | Command | Expected State on Battery |
 | :--- | :--- | :--- |
@@ -109,3 +129,6 @@ Overrides disable unneeded desktop daemons when running Niri:
 | **Akonadi / MySQL Processes** | `ps aux \| grep -iE "akonadi\|mysqld" \| grep -v grep` | Empty (no running processes) |
 | **KDE Connect Status** | `systemctl --user status app-org.kde.kdeconnect.daemon@autostart.service` | Inactive / dead |
 | **Toggle Hardware Mode** | `~/.config/waybar/scripts/hardware-power-toggle.sh --toggle` | Toggles between eco and standard |
+| **Toggle Lid Deep Sleep** | `~/.config/waybar/scripts/deep-sleep-toggle.sh --toggle` | Toggles between deep sleep and keep awake |
+| **Deep Sleep Service Status** | `systemctl --user status deep-sleep-inhibit.service` | `active` when sleep disabled, `inactive` when sleep enabled |
+

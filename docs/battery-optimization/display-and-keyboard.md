@@ -1,22 +1,20 @@
-# Ambient Light Sensor (ALS) & Backlight Power Optimization
+# Ambient Light Sensor (ALS), Adaptive ML & Backlight Power Optimization
 
-This document covers the automatic ambient light sensing engine for Apple Silicon Linux that regulates display brightness and keyboard backlight to optimize battery consumption and ergonomic comfort.
+This document covers the automatic ambient light sensing engine and Machine Learning adaptive controller for Apple Silicon Linux that regulates display brightness and keyboard backlight to maximize battery life, preserve ergonomic comfort, and harmonize with system sleep states.
 
 ---
 
 ## 1. Power Analysis & Battery Impact
 
-Laptop backlights represent one of the single largest continuous battery drains:
+Display and keyboard backlights represent the single largest continuous battery drains on Apple Silicon MacBooks:
 
-| Component | Active Power Consumption | Impact of ALS Automation |
+| Component | Active Power Consumption | Impact of Automation |
 | :--- | :--- | :--- |
-| **Keyboard Backlight LEDs** | **~100 mW – 300 mW** | **Saves ~150 – 250 mW** in bright rooms (> 55 lux) by turning off LEDs when keys are already visible. |
-| **Display Panel Backlight** | **~500 mW – 3,500 mW** | Automatically scales down in dimmer environments, reducing display wattage significantly. |
+| **Keyboard Backlight LEDs** | **~100 mW – 300 mW** | **Saves ~150 – 250 mW** in bright rooms (> 55 lux) by shutting off LEDs when keys are already visible. Capped at **50% max** to prevent excessive drain in the dark. |
+| **Display Panel Backlight** | **~500 mW – 3,500 mW** | Automatically scales down according to a personalized 30% baseline in typical lighting (~485 lux), saving **~1.0 W to 1.5 W** compared to typical high-brightness defaults. |
+| **Lid-Closed Clamshell State** | **~500 mW – 2,000 mW** | When deep sleep is inhibited for background jobs, dims panel and keyboard to **0%**, saving full display power while tasks continue executing. |
 | **ALS Sensor Hardware (AOP)** | **< 1 mW (microwatts)** | Apple Always-On Processor (AOP) monitors the photodiode in hardware at near-zero power. |
-| **Software Polling Overhead** | **~0.001 mW (< 0.02% CPU)** | Direct sysfs read takes **18 microseconds**; sampling every 2.5s costs virtually zero battery. |
-
-> [!NOTE]
-> In well-lit environments (e.g. daytime ~485 lux), turning off the keyboard backlight saves **~150 mW to 250 mW**, giving a net battery gain that vastly outweighs the micro-overhead of querying the sensor.
+| **Software Polling Overhead** | **~0.001 mW (< 0.02% CPU)** | Pure Python standard library implementation, sysfs reads take microseconds; memory footprint is **< 2 MB**. |
 
 ---
 
@@ -24,7 +22,7 @@ Laptop backlights represent one of the single largest continuous battery drains:
 
 - **Ambient Light Sensor (ALS)**:
   `/sys/bus/iio/devices/iio:device1/in_illuminance_input` (provided by `aop-sensors-als`, `apple,t6020-aop-als`).
-  Outputs raw illuminance in lux.
+  Outputs real-time illuminance in lux.
 - **Lid Angle Sensor (LAS)**:
   `/sys/bus/iio/devices/iio:device0/in_angl_raw` (provided by `aop-sensors-las`).
   Outputs the physical lid opening angle in degrees ($0^\circ$ to $135^\circ$).
@@ -39,85 +37,136 @@ Laptop backlights represent one of the single largest continuous battery drains:
 
 ```mermaid
 flowchart TD
-    subgraph Sensors ["Hardware Sensors (AOP)"]
+    subgraph Sensors ["Hardware Sensors & Power State"]
         ALS["aop-sensors-als<br/>(Illuminance Lux)"]
         LAS["aop-sensors-las<br/>(Lid Angle Degrees)"]
+        SleepState["deep-sleep-inhibit.service<br/>(Sleep Inhibited?)"]
     end
 
-    subgraph Daemon ["kbd-backlight-watcher.service (every 2.5s)"]
-        Read["Read Lux & Lid Angle"] --> Smooth["Exponential Moving Average (EMA)<br/>(Filters transient shadows)"]
-        Smooth --> Clamshell{"Lid Closed?<br/>(Angle <= 0°)"}
-        Clamshell -- "Yes" --> ForceOff["Keyboard = 0 (OFF)"]
-        Clamshell -- "No" --> Threshold{"Ambient Lux"}
+    subgraph Logic ["kbd-backlight-watcher Daemon"]
+        CheckLid{"Lid Angle <= 0°?<br/>(Closed)"}
         
-        Threshold -- ">= 55 lux (Bright)" --> KbdOff["Keyboard = 0 (OFF)<br/>(Saves ~150-250mW)"]
-        Threshold -- "<= 30 lux (Dark)" --> KbdOn["Keyboard = ON<br/>(Proportional to Screen %)"]
-        Threshold -- "30 - 55 lux" --> Hysteresis["Maintain Previous State<br/>(Zero flicker)"]
+        CheckLid -- "Yes (Closed)" --> CheckInhibit{"Deep Sleep<br/>Inhibited?"}
+        CheckInhibit -- "Yes (Active tasks)" --> DimZero["Dim Screen to 0%<br/>Dim Keyboard to 0%<br/>(Tasks continue running)"]
+        CheckInhibit -- "No (Normal Sleep)" --> NormalSleep["logind suspends to deep sleep"]
         
-        Smooth --> ScreenCheck{"Auto-Screen<br/>Enabled?"}
-        ScreenCheck -- "Yes" --> LogCurve["Calculate Logarithmic Target %<br/>+ User Preference Bias"]
-        LogCurve --> StepScreen["Ramp Display in 5% Steps"]
+        CheckLid -- "No (Open)" --> MLPredict["AdaptiveBrightnessModel.predict(lux)<br/>Baseline: 485 lux -> 30%"]
+        MLPredict --> SmoothRamp["Gradual 0.5% Smooth Ramping<br/>(50ms interval glide)"]
+        SmoothRamp --> SetScreen["/sys/class/backlight/apple-panel-bl"]
+        
+        SetScreen --> KbdDelta["Calculate Kbd = Screen + Delta<br/>Strict Cap: max 50% (128/255)"]
+        KbdDelta --> CheckAmbient{"Ambient > 55 lux?"}
+        CheckAmbient -- "Yes (Bright)" --> KbdOff["Keyboard = 0 (OFF)"]
+        CheckAmbient -- "No (Dark/Dim)" --> KbdOn["Keyboard = clamp(Screen + Delta, 0, 50%)"]
+        KbdOff --> KBD["/sys/class/leds/kbd_backlight"]
+        KbdOn --> KBD
     end
 
-    Sensors --> Read
-    KbdOff --> KBD["/sys/class/leds/kbd_backlight"]
-    KbdOn --> KBD
-    Hysteresis --> KBD
-    ForceOff --> KBD
-    StepScreen --> BL["/sys/class/backlight/apple-panel-bl"]
+    subgraph MLFeedback ["Machine Learning Adaptation"]
+        UserKeys["User presses F1/F2 (5% steps)"] --> Debounce["Debounce 2.5s (Settle Delay)"]
+        Debounce --> Learn["model.learn(current_lux, chosen_pct)"]
+        Learn --> SaveModel["Save ~/.local/state/brightness_model.json"]
+        SaveModel -.-> MLPredict
+    end
+
+    Sensors --> CheckLid
+    DimZero --> SetScreen
+    DimZero --> KBD
 ```
-
-### A. Keyboard Backlight Engine
-- **In Bright Light (> 55 lux)**: Key legends are clearly visible from ambient illumination. Backlight turns **OFF** (`0/255`), saving battery power.
-- **In Dim Light (< 30 lux)**: Key illumination is required. Backlight turns **ON** and scales proportionally to the display brightness (e.g. 20% screen $\rightarrow$ 20% keyboard, 40% screen $\rightarrow$ 40% keyboard).
-- **Hysteresis Band (30 – 55 lux)**: Prevents toggling or flickering caused by minor shadows or moving hands.
-- **Clamshell Safety**: When the lid is closed (`angle <= 0`), keyboard LEDs are forced off immediately.
-
-### B. Display Perceptual Curve & User Bias
-- Human brightness perception is logarithmic (Weber-Fechner law). The daemon applies a calibrated logarithmic curve:
-  $$\text{Target \%} = 5 + 23.75 \cdot \log_{10}(\text{lux}) + \text{user\_bias}$$
-- Snaps to exact **5% increments** (e.g. 5%, 10%, 15%... 70%... 100%).
-- **User Bias**: When you press <kbd>F1</kbd> or <kbd>F2</kbd>, it shifts your persistent offset ($+5\% / -5\%$) across the entire ambient curve without fighting the daemon.
 
 ---
 
-## 4. Configuration & Keybindings
+## 4. Key Subsystems & Features
+
+### A. Machine Learning Adaptive Brightness (`adaptive_model.py`)
+- **Kernel Anchor Spline**: Implemented in pure Python standard library with zero external dependencies (no numpy/scipy required).
+- **Logarithmic Perceptual Space**: Interpolation and kernel regression occur in $\log_{10}(\text{lux} + 1)$ space, aligning with human vision (Weber-Fechner Law).
+- **Strict Monotonicity**: Guarantees that a brighter room never produces a dimmer screen.
+- **Factory Baseline**: Calibrated for a starting point of **30% screen brightness** (150/500) under typical room lighting (~485 lux):
+
+| Ambient Lux | Environment | Default Target % | Units (/500) |
+| :--- | :--- | :--- | :--- |
+| `0.0 lux` | Pitch black | 5.0% | 25 |
+| `5.0 lux` | Very dark room | 10.0% | 50 |
+| `20.0 lux` | Candlelight / night light | 15.0% | 75 |
+| `50.0 lux` | Dim indoor | 20.0% | 100 |
+| `150.0 lux` | Normal indoor | 22.0% | 110 |
+| **`485.0 lux`** | **Baseline room lighting** | **30.0%** | **150** |
+| `1500.0 lux` | Sunlit room / near window | 45.0% | 225 |
+| `5000.0 lux` | Overcast outdoor | 70.0% | 350 |
+| `10000.0 lux` | Direct sunlight | 90.0% | 450 |
+
+- **Learning from Manual Keypresses**:
+  - When the user presses <kbd>F1</kbd> or <kbd>F2</kbd>, physical brightness shifts in crisp 5% steps.
+  - The watcher waits for a **2.5s settle window** (so multiple rapid presses settle first).
+  - The model adjusts local anchors via Gaussian kernel weighting and persists the curve to `~/.local/state/brightness_model.json`.
+  - While the ambient lux remains within the same lighting condition, the user's manual brightness is preserved without fighting the daemon.
+
+### B. Gradual Smooth Ramping (0.5% Steps)
+- Replaces abrupt 5% jumps with a smooth glide.
+- When ambient lighting shifts, screen brightness steps by **0.5%** (2.5 units on 500 max) every **50 ms** (~10%/sec transition speed).
+- Ramping aborts immediately if the user touches manual brightness keys.
+- Deadband of 1% (5 units) prevents micro-jitter caused by sensor noise.
+
+### C. Keyboard Backlight (Delta Tracking & 50% Hard Cap)
+- **Full Daylight Shutoff**: Automatically turns **OFF** (`0/255`) in bright rooms (> 55 lux).
+- **Dim Room Auto-On**: Turns **ON** in dim rooms (< 30 lux) with hysteresis between 30 and 55 lux to prevent flickering.
+- **Delta Following**: Tracks display brightness plus a configurable delta ($\text{Kbd} = \text{Screen} + \Delta$).
+- **Strict 50% Maximum Cap**: Keyboard backlight is strictly capped at **50% max** (`128/255`), preventing excessive power consumption in dark environments.
+- <kbd>Mod</kbd> + <kbd>BrightnessUp</kbd> / <kbd>Down</kbd> (<kbd>F5</kbd>/<kbd>F6</kbd>) adjusts the delta by $\pm 5\%$.
+
+### D. Lid-Close & Deep Sleep Harmony
+- **Deep Sleep Mode ON** (`[ 󰒲 sleep on ]`):
+  - Systemd inhibitor is inactive.
+  - Closing the lid allows `systemd-logind` to suspend the MacBook into deep sleep as normal.
+- **Deep Sleep Mode OFF** (`[ 󰒲 sleep off ]` / Active Tasks):
+  - Inhibitor `deep-sleep-inhibit.service` is active.
+  - When the lid is closed (`angle <= 0`), the screen is dimmed to **0%** and keyboard to **0%**, keeping background tasks running while completely extinguishing display power.
+  - When the lid is reopened (`angle > 0`), display and keyboard brightness are immediately restored to the ambient target without delay.
+
+---
+
+## 5. Configuration & Commands
 
 ### Configuration File (`~/.config/niri/ambient.conf`)
 ```ini
+# Ambient Light & Backlight Settings
+
 # Keyboard Ambient Light Sensor Thresholds (in lux)
 kbd_lux_dark = 30        # Below this lux, keyboard backlight turns ON
 kbd_lux_bright = 55      # Above this lux, keyboard backlight turns OFF
 
-# Screen auto-brightness: true or false
-auto_screen = true
+# Keyboard Follows Screen Settings
+kbd_delta_pct = 0        # Keyboard follows screen with this delta (+/- %)
+kbd_max_pct = 50         # Strict maximum keyboard brightness cap (50% = 128/255)
 
-# Screen brightness bounds (percentages: 1 to 100)
+# Screen Auto-Brightness Settings
+auto_screen = true
 screen_min_pct = 5
 screen_max_pct = 100
 
-# Polling interval in seconds (2.5s is optimal for battery life)
+# Smooth Gradual Ramping
+smooth_ramp = true
+ramp_step_pct = 0.5      # Step size for automatic transitions (0.5% per step)
+ramp_interval_ms = 50    # Milliseconds between ramp steps (50ms = 10%/sec glide)
+
+# Machine Learning Adaptive Model Settings
+ml_learning = true       # Learn from manual F1/F2 adjustments
+ml_learning_rate = 0.75  # Adaptation speed
+ml_settle_delay = 2.5    # Seconds of inactivity after keypress before recording
+
+# Daemon Polling Interval (seconds)
 poll_interval = 2.5
 ```
 
-### Keybindings (in `~/.config/niri/config.kdl`)
-| Shortcut | Action | Description |
-| :--- | :--- | :--- |
-| <kbd>F1</kbd> / <kbd>BrightnessDown</kbd> | `backlight.sh down` | Step screen down by 5% and shift ambient bias down |
-| <kbd>F2</kbd> / <kbd>BrightnessUp</kbd> | `backlight.sh up` | Step screen up by 5% and shift ambient bias up |
-| <kbd>Mod</kbd> + <kbd>BrightnessUp</kbd> | `backlight.sh kbd-up` | Increase keyboard proportional scale factor |
-| <kbd>Mod</kbd> + <kbd>BrightnessDown</kbd> | `backlight.sh kbd-down` | Decrease keyboard proportional scale factor |
-| <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> | `backlight.sh toggle-auto-screen` | Toggle automatic screen brightness on/off |
-
----
-
-## 5. Verification & Commands
-
+### CLI Commands (`~/.config/niri/scripts/backlight.sh`)
 | Action | Command |
 | :--- | :--- |
-| **Inspect Ambient & Backlight Status** | `~/.config/niri/scripts/backlight.sh status` |
-| **Read Raw Room Lux** | `cat /sys/bus/iio/devices/iio:device1/in_illuminance_input` |
-| **Read Lid Angle** | `cat /sys/bus/iio/devices/iio:device0/in_angl_raw` |
-| **Reset Screen Bias to 0%** | `~/.config/niri/scripts/backlight.sh reset-bias` |
-| **Toggle Screen Auto-Brightness** | `~/.config/niri/scripts/backlight.sh toggle-auto-screen` |
-| **Check Service Health & CPU Time** | `systemctl --user status kbd-backlight-watcher.service` |
+| **Inspect System & Ambient Status** | `~/.config/niri/scripts/backlight.sh status` |
+| **View Adaptive ML Model & Anchors** | `~/.config/niri/scripts/backlight.sh model` |
+| **Reset ML Model to 30% Baseline** | `~/.config/niri/scripts/backlight.sh reset-model` |
+| **Force Immediate Resync** | `~/.config/niri/scripts/backlight.sh sync` |
+| **Adjust Keyboard Delta (+5% / -5%)** | `~/.config/niri/scripts/backlight.sh kbd-up` / `kbd-down` |
+| **Toggle Auto Screen Brightness** | `~/.config/niri/scripts/backlight.sh toggle-auto-screen` |
+| **Toggle Deep Sleep Mode** | `~/.config/waybar/scripts/deep-sleep-toggle.sh --toggle` |
+| **Check Watcher Service Health** | `systemctl --user status kbd-backlight-watcher.service` |

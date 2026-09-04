@@ -11,6 +11,7 @@
     "custom/separator",
     "tray",
     "custom/separator2",
+    "custom/sleep",
     "mpris"
   ],
   "modules-center": ["custom/separator", "custom/clock", "custom/separator2"],
@@ -43,6 +44,13 @@
   "custom/separator3": {
     "format": "󰿟",
     "tooltip": false
+  },
+  "custom/sleep": {
+    "exec": "$HOME/.config/waybar/scripts/deep-sleep-toggle.sh",
+    "return-type": "json",
+    "signal": 7,
+    "interval": 30,
+    "on-click": "$HOME/.config/waybar/scripts/deep-sleep-toggle.sh --toggle"
   },
   "custom/hardware": {
     "exec": "$HOME/.config/waybar/scripts/hardware-power-toggle.sh",

@@ -1,21 +1,30 @@
 #!/usr/bin/env python3
 """
-Ambient Light Sensor (ALS) & Backlight Controller
+Ambient Light Sensor (ALS) & Adaptive Backlight Controller
 Automatically controls keyboard backlight and screen brightness using ambient room lux:
 - Keyboard Backlight: Turns OFF in bright/normal room light (> 55 lux) to save battery;
-  turns ON proportionally in dim/dark rooms (< 30 lux).
-- Screen Brightness: Smoothly follows a perceptual logarithmic ambient curve with manual bias.
-- Lid Angle Awareness: Shuts off keyboard backlight when lid is closed.
+  turns ON proportionally (with delta) in dim/dark rooms (< 30 lux), strictly capped at 50%.
+- Screen Brightness: Smoothly glides by 0.5% steps using a lightweight Machine Learning model
+  (Kernel Anchor Spline) that learns personalized preferences from manual F1/F2 adjustments.
+- Lid & Deep Sleep Integration: Dims screen to 0% and keyboard to 0% when lid is closed
+  while deep sleep is inhibited (tasks running), without conflicting with deep sleep suspend.
 """
 
 import argparse
-import configparser
+import json
 import math
 import os
 import signal
 import subprocess
 import sys
 import time
+
+# Ensure imports from current script directory work regardless of working dir
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+from adaptive_model import AdaptiveBrightnessModel, MODEL_FILE
 
 BL_PATH = "/sys/class/backlight/apple-panel-bl"
 KBD_PATH = "/sys/class/leds/kbd_backlight"
@@ -24,17 +33,27 @@ LAS_PATH = "/sys/bus/iio/devices/iio:device0/in_angl_raw"
 
 CONFIG_FILE = os.path.expanduser("~/.config/niri/ambient.conf")
 STATE_DIR = os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state"))
-SCALE_FILE = os.path.join(STATE_DIR, "kbd_backlight_scale")
-BIAS_FILE = os.path.join(STATE_DIR, "screen_ambient_bias")
-STATE_FILE = os.path.join(STATE_DIR, "ambient_watcher_state")
+KBD_DELTA_FILE = os.path.join(STATE_DIR, "kbd_backlight_delta")
+ADJUSTMENT_FILE = os.path.join(STATE_DIR, "last_manual_adjustment.json")
+SAVED_BRIGHTNESS_FILE = os.path.join(
+    os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "saved-screen-brightness"
+)
 
 # Default settings
 DEFAULT_CONFIG = {
     "kbd_lux_dark": 30.0,
     "kbd_lux_bright": 55.0,
+    "kbd_delta_pct": 0.0,
+    "kbd_max_pct": 50.0,
     "auto_screen": True,
     "screen_min_pct": 5,
     "screen_max_pct": 100,
+    "smooth_ramp": True,
+    "ramp_step_pct": 0.5,
+    "ramp_interval_ms": 50,
+    "ml_learning": True,
+    "ml_learning_rate": 0.75,
+    "ml_settle_delay": 2.5,
     "poll_interval": 2.5,
 }
 
@@ -52,11 +71,20 @@ def load_config():
                         k, v = line.split("=", 1)
                         k = k.strip().lower()
                         v = v.split("#")[0].strip()
-                        if k in ("kbd_lux_dark", "kbd_lux_bright", "poll_interval"):
+                        if k in (
+                            "kbd_lux_dark",
+                            "kbd_lux_bright",
+                            "kbd_delta_pct",
+                            "kbd_max_pct",
+                            "ramp_step_pct",
+                            "ml_learning_rate",
+                            "ml_settle_delay",
+                            "poll_interval",
+                        ):
                             cfg[k] = float(v)
-                        elif k in ("screen_min_pct", "screen_max_pct"):
+                        elif k in ("screen_min_pct", "screen_max_pct", "ramp_interval_ms"):
                             cfg[k] = int(v)
-                        elif k == "auto_screen":
+                        elif k in ("auto_screen", "smooth_ramp", "ml_learning"):
                             cfg[k] = v.lower() in ("true", "1", "yes", "on")
         except Exception:
             pass
@@ -92,6 +120,28 @@ def save_config_auto_screen(enabled):
             f.writelines(new_lines)
     except Exception:
         pass
+
+
+def is_deep_sleep_inhibited():
+    """Returns True if deep sleep is currently inhibited (active tasks keep awake)."""
+    try:
+        res = subprocess.run(
+            ["systemctl", "--user", "is-active", "--quiet", "deep-sleep-inhibit.service"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if res.returncode == 0:
+            return True
+        res2 = subprocess.run(
+            ["pgrep", "-f", "systemd-inhibit.*handle-lid-switch.*Waybar"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return res2.returncode == 0
+    except Exception:
+        return False
 
 
 def get_raw_lux():
@@ -162,93 +212,113 @@ def set_kbd_brightness(val):
     try:
         res = subprocess.run(
             [
-                "busctl", "call", "org.freedesktop.UPower",
+                "busctl",
+                "call",
+                "org.freedesktop.UPower",
                 "/org/freedesktop/UPower/KbdBacklight",
                 "org.freedesktop.UPower.KbdBacklight",
-                "SetBrightness", "i", str(val)
+                "SetBrightness",
+                "i",
+                str(val),
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            check=False
+            check=False,
         )
         return res.returncode == 0
     except Exception:
         return False
 
 
-def get_scale():
+def get_kbd_delta(cfg):
     try:
-        if os.path.isfile(SCALE_FILE):
-            with open(SCALE_FILE, "r") as f:
+        if os.path.isfile(KBD_DELTA_FILE):
+            with open(KBD_DELTA_FILE, "r") as f:
                 val = float(f.read().strip())
-                if 0.1 <= val <= 3.0:
+                if -50.0 <= val <= 50.0:
                     return val
     except Exception:
         pass
-    return 1.0
+    return float(cfg.get("kbd_delta_pct", 0.0))
 
 
-def save_scale(val):
+def save_kbd_delta(val):
+    val = max(-50.0, min(50.0, float(val)))
     try:
         os.makedirs(STATE_DIR, exist_ok=True)
-        with open(SCALE_FILE, "w") as f:
-            f.write(f"{val:.2f}\n")
+        with open(KBD_DELTA_FILE, "w") as f:
+            f.write(f"{val:.1f}\n")
     except Exception:
         pass
 
 
-def get_screen_bias():
-    try:
-        if os.path.isfile(BIAS_FILE):
-            with open(BIAS_FILE, "r") as f:
-                val = int(f.read().strip())
-                if -50 <= val <= 50:
-                    return val
-    except Exception:
-        pass
-    return 0
+def get_last_adjustment():
+    if os.path.isfile(ADJUSTMENT_FILE):
+        try:
+            with open(ADJUSTMENT_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
 
 
-def save_screen_bias(val):
-    val = max(-50, min(50, val))
+def get_last_adjustment_timestamp():
+    adj = get_last_adjustment()
+    return adj.get("timestamp", 0) if adj else 0
+
+
+def record_manual_adjustment(val):
+    lux = get_raw_lux()
+    _, disp_max = get_display_brightness()
+    disp_max = disp_max or 500
+    pct = round((val / disp_max) * 100.0, 1)
+    lux_val = round(lux, 1) if lux is not None else 485.0
+    payload = {
+        "lux": lux_val,
+        "pct": pct,
+        "timestamp": time.time(),
+        "learned": False,
+    }
     try:
         os.makedirs(STATE_DIR, exist_ok=True)
-        with open(BIAS_FILE, "w") as f:
-            f.write(f"{val}\n")
+        with open(ADJUSTMENT_FILE, "w") as f:
+            json.dump(payload, f, indent=2)
     except Exception:
         pass
 
-
-def adjust_screen_bias(delta):
-    bias = get_screen_bias() + delta
-    save_screen_bias(bias)
-    print(f"Screen ambient bias: {bias:+d}%")
-    sync_all()
-
-
-def lux_to_target_screen_pct(lux, cfg):
-    """
-    Logarithmic perceptual curve mapping ambient lux to target display percentage.
-    Snapped to 5% intervals.
-    """
-    if lux is None or lux <= 0:
-        base = float(cfg["screen_min_pct"])
+    # Immediately sync keyboard backlight to match new screen brightness
+    cfg = load_config()
+    raw_lux = get_raw_lux()
+    lid_angle = get_lid_angle()
+    mgr = AmbientBacklightManager()
+    kbd_should_on = mgr.determine_kbd_state(raw_lux, lid_angle)
+    kbd_cur, kbd_max = get_kbd_brightness()
+    kbd_max = kbd_max or 255
+    if not kbd_should_on:
+        target_kbd = 0
     else:
-        # Scale: 5% at 1 lux, ~45% at 50 lux, ~70% at 500 lux, 100% at 10000 lux
-        base = 5.0 + 23.75 * math.log10(max(1.0, float(lux)))
-
-    bias = get_screen_bias()
-    target = round((base + bias) / 5.0) * 5
-    return max(cfg["screen_min_pct"], min(cfg["screen_max_pct"], int(target)))
+        kbd_delta = get_kbd_delta(cfg)
+        screen_pct = (val / disp_max) * 100.0
+        kbd_target_pct = max(0.0, min(float(cfg["kbd_max_pct"]), screen_pct + kbd_delta))
+        target_kbd = round((kbd_target_pct / 100.0) * kbd_max)
+        if val > 0 and target_kbd < 1:
+            target_kbd = 1
+        target_kbd = max(0, min(target_kbd, round((float(cfg["kbd_max_pct"]) / 100.0) * kbd_max)))
+    if kbd_cur != target_kbd:
+        set_kbd_brightness(target_kbd)
 
 
 class AmbientBacklightManager:
     def __init__(self):
         self.cfg = load_config()
+        self.model = AdaptiveBrightnessModel()
         self.smoothed_lux = get_raw_lux()
-        self.kbd_on_state = False  # Hysteresis memory
+        self.kbd_on_state = False  # Hysteresis state
+        self.lid_was_closed = False
+        self.saved_disp_before_lid = None
+        self.running = True
 
-    def update_smoothed_lux(self, raw_lux, alpha=0.35):
+    def update_smoothed_lux(self, raw_lux, alpha=0.30):
         if raw_lux is None:
             return None
         if self.smoothed_lux is None:
@@ -276,6 +346,91 @@ class AmbientBacklightManager:
 
         return self.kbd_on_state
 
+    def check_and_learn_manual_adjustment(self):
+        if not self.cfg.get("ml_learning", True):
+            return False
+
+        adj = get_last_adjustment()
+        if not adj or adj.get("learned", False):
+            return False
+
+        adj_time = adj.get("timestamp", 0)
+        settle = self.cfg.get("ml_settle_delay", 2.5)
+
+        # Check if user has stopped pressing buttons for >= settle seconds
+        if time.time() - adj_time >= settle:
+            lux = adj.get("lux")
+            pct = adj.get("pct")
+            if lux is not None and pct is not None:
+                rate = self.cfg.get("ml_learning_rate", 0.75)
+                self.model.learn(lux, pct, learning_rate=rate)
+                adj["learned"] = True
+                try:
+                    with open(ADJUSTMENT_FILE, "w") as f:
+                        json.dump(adj, f, indent=2)
+                except Exception:
+                    pass
+                return True
+        return False
+
+    def ramp_display(self, start_val, target_val, disp_max, kbd_max, kbd_should_be_on):
+        """
+        Gradual smooth transition stepping by ramp_step_pct (0.5% per step).
+        Aborts immediately if user presses manual brightness keys.
+        """
+        step_units = max(1.0, disp_max * (self.cfg["ramp_step_pct"] / 100.0))
+        interval = max(0.01, self.cfg["ramp_interval_ms"] / 1000.0)
+        current = float(start_val)
+        direction = 1.0 if target_val > start_val else -1.0
+
+        initial_adj_ts = get_last_adjustment_timestamp()
+
+        while self.running and abs(target_val - current) >= 1.0:
+            # Abort ramp immediately if user pressed brightness keys
+            if get_last_adjustment_timestamp() != initial_adj_ts:
+                break
+
+            current += direction * step_units
+            if (direction > 0 and current > target_val) or (direction < 0 and current < target_val):
+                current = float(target_val)
+
+            int_val = round(current)
+            set_display_brightness(int_val)
+
+            # Keep keyboard backlight in sync during ramp
+            if kbd_should_be_on:
+                kbd_delta = get_kbd_delta(self.cfg)
+                screen_pct = (int_val / disp_max) * 100.0
+                kbd_target_pct = max(0.0, min(float(self.cfg["kbd_max_pct"]), screen_pct + kbd_delta))
+                target_kbd = round((kbd_target_pct / 100.0) * kbd_max)
+                if int_val > 0 and target_kbd < 1:
+                    target_kbd = 1
+                target_kbd = max(0, min(target_kbd, round((float(self.cfg["kbd_max_pct"]) / 100.0) * kbd_max)))
+                set_kbd_brightness(target_kbd)
+
+            time.sleep(interval)
+
+    def is_manual_override_active(self, current_lux):
+        adj = get_last_adjustment()
+        if not adj:
+            return False
+
+        if adj.get("synced", False):
+            return False
+
+        adj_lux = adj.get("lux")
+        if adj_lux is None or current_lux is None:
+            return False
+
+        # If ambient light has shifted noticeably (> 30% or 0.12 in log10 space),
+        # lighting condition has changed, so auto-screen resumes
+        log_cur = math.log10(max(1.0, float(current_lux)))
+        log_adj = math.log10(max(1.0, float(adj_lux)))
+        if abs(log_cur - log_adj) > 0.12:
+            return False
+
+        return True
+
     def sync(self, ramp_screen=False):
         self.cfg = load_config()
         raw_lux = get_raw_lux()
@@ -287,37 +442,72 @@ class AmbientBacklightManager:
         kbd_cur, kbd_max = get_kbd_brightness()
         kbd_max = kbd_max or 255
 
-        # --- 1. Screen Brightness Auto-Adjust (if enabled) ---
+        # --- 0. Lid Closed Awareness (Zero conflict with Deep Sleep) ---
+        if lid_angle is not None and lid_angle <= 0:
+            self.lid_was_closed = True
+            # Dim screen and keyboard to 0% while closed
+            if disp_cur is not None and disp_cur > 0:
+                self.saved_disp_before_lid = disp_cur
+                try:
+                    with open(SAVED_BRIGHTNESS_FILE, "w") as f:
+                        f.write(f"{disp_cur}\n")
+                except Exception:
+                    pass
+                set_display_brightness(0)
+            if kbd_cur != 0:
+                set_kbd_brightness(0)
+            return 0, 0
+
+        # Lid was closed and has just been opened: restore immediately without slow ramp
+        if self.lid_was_closed:
+            self.lid_was_closed = False
+            ramp_screen = False
+
+        # --- 1. Screen Brightness Auto-Adjust (Adaptive ML) ---
         if self.cfg["auto_screen"] and smoothed_lux is not None and disp_cur is not None:
-            target_pct = lux_to_target_screen_pct(smoothed_lux, self.cfg)
-            target_val = round((target_pct / 100.0) * disp_max)
+            # If manual override is active for current lighting, preserve user's chosen brightness
+            if not self.is_manual_override_active(smoothed_lux):
+                target_pct = self.model.predict(smoothed_lux)
+                target_pct = max(self.cfg["screen_min_pct"], min(self.cfg["screen_max_pct"], target_pct))
+                target_val = round((target_pct / 100.0) * disp_max)
 
-            if target_val != disp_cur:
-                if ramp_screen:
-                    # Gentle ramp: max 5% step (25 units) per cycle
-                    step = round(disp_max * 0.05)
-                    diff = target_val - disp_cur
-                    clamped_diff = max(-step, min(step, diff))
-                    new_disp = disp_cur + clamped_diff
-                else:
-                    new_disp = target_val
+                # Deadband threshold to avoid hunting on micro-lux changes (~1.0% = 5 units)
+                deadband = max(2, round(disp_max * 0.01))
+                if abs(target_val - disp_cur) > deadband:
+                    kbd_should_on = self.determine_kbd_state(smoothed_lux, lid_angle)
+                    if ramp_screen and self.cfg.get("smooth_ramp", True):
+                        self.ramp_display(disp_cur, target_val, disp_max, kbd_max, kbd_should_on)
+                        disp_cur, _ = get_display_brightness()
+                    else:
+                        set_display_brightness(target_val)
+                        disp_cur = target_val
+        elif disp_cur == 0:
+            # Screen is at 0 (e.g. lid just opened or woke from sleep): restore
+            restore_val = getattr(self, "saved_disp_before_lid", None)
+            if not restore_val and os.path.isfile(SAVED_BRIGHTNESS_FILE):
+                try:
+                    with open(SAVED_BRIGHTNESS_FILE, "r") as f:
+                        restore_val = int(f.read().strip())
+                except Exception:
+                    pass
+            if not restore_val:
+                restore_val = round((self.model.predict(smoothed_lux or 485.0) / 100.0) * disp_max)
+            set_display_brightness(max(10, restore_val))
+            disp_cur = restore_val
 
-                set_display_brightness(new_disp)
-                disp_cur = new_disp
-
-        # --- 2. Keyboard Backlight Auto-Adjust ---
+        # --- 2. Keyboard Backlight Auto-Adjust (Follows Screen with Delta & Max 50% Cap) ---
         kbd_should_be_on = self.determine_kbd_state(smoothed_lux, lid_angle)
 
         if not kbd_should_be_on:
             target_kbd = 0
         else:
-            # Proportional to screen brightness (and user scale factor)
-            scale = get_scale()
-            ratio = (disp_cur / disp_max) if (disp_cur and disp_max) else 0.4
-            target_kbd = round(ratio * scale * kbd_max)
+            kbd_delta = get_kbd_delta(self.cfg)
+            screen_pct = (disp_cur / disp_max) * 100.0 if (disp_cur and disp_max) else 30.0
+            kbd_target_pct = max(0.0, min(float(self.cfg["kbd_max_pct"]), screen_pct + kbd_delta))
+            target_kbd = round((kbd_target_pct / 100.0) * kbd_max)
             if disp_cur and disp_cur > 0 and target_kbd < 1:
                 target_kbd = 1
-            target_kbd = max(0, min(target_kbd, kbd_max))
+            target_kbd = max(0, min(target_kbd, round((float(self.cfg["kbd_max_pct"]) / 100.0) * kbd_max)))
 
         if kbd_cur != target_kbd:
             set_kbd_brightness(target_kbd)
@@ -326,6 +516,14 @@ class AmbientBacklightManager:
 
 
 def sync_all():
+    adj = get_last_adjustment()
+    if adj:
+        adj["synced"] = True
+        try:
+            with open(ADJUSTMENT_FILE, "w") as f:
+                json.dump(adj, f, indent=2)
+        except Exception:
+            pass
     mgr = AmbientBacklightManager()
     mgr.sync(ramp_screen=False)
 
@@ -336,50 +534,88 @@ def print_status():
     lid_angle = get_lid_angle()
     disp_cur, disp_max = get_display_brightness()
     kbd_cur, kbd_max = get_kbd_brightness()
-    scale = get_scale()
-    bias = get_screen_bias()
+    kbd_delta = get_kbd_delta(cfg)
+    inhibited = is_deep_sleep_inhibited()
+
+    model = AdaptiveBrightnessModel()
+    predicted_pct = model.predict(raw_lux) if raw_lux is not None else None
 
     mgr = AmbientBacklightManager()
     kbd_should_on = mgr.determine_kbd_state(raw_lux, lid_angle)
-    target_screen_pct = lux_to_target_screen_pct(raw_lux, cfg) if raw_lux is not None else None
 
     disp_pct = f"{(disp_cur * 100 // disp_max)}%" if (disp_cur is not None and disp_max) else "unknown"
     kbd_pct = f"{(kbd_cur * 100 // kbd_max)}%" if (kbd_cur is not None and kbd_max) else "unknown"
 
     print("=== Ambient & Backlight Status ===")
-    print(f"Ambient Light:     {raw_lux:.1f} lux" if raw_lux is not None else "Ambient Light:     Not Available")
-    print(f"Lid Angle:         {lid_angle}°" if lid_angle is not None else "Lid Angle:         Not Available")
-    print(f"Display:           {disp_cur}/{disp_max} ({disp_pct})")
-    print(f"Keyboard:          {kbd_cur}/{kbd_max} ({kbd_pct})")
-    print(f"Keyboard Auto-On:  {kbd_should_on} (thresholds: ON < {cfg['kbd_lux_dark']:.0f} lux, OFF > {cfg['kbd_lux_bright']:.0f} lux)")
-    print(f"Auto-Screen:       {'Enabled' if cfg['auto_screen'] else 'Disabled'}")
-    if cfg["auto_screen"] and target_screen_pct is not None:
-        print(f"Target Screen:     {target_screen_pct}% (bias: {bias:+d}%)")
-    print(f"Keyboard Scale:    {scale:.2f}x")
+    print(f"Ambient Light:      {raw_lux:.1f} lux" if raw_lux is not None else "Ambient Light:      Not Available")
+    print(
+        f"Lid Angle:          {lid_angle}° (Sleep Mode: {'Active Tasks (keep awake, dim to 0%)' if inhibited else 'Battery Saving (deep sleep on close)'})"
+        if lid_angle is not None
+        else "Lid Angle:          Not Available"
+    )
+    print(f"Display:            {disp_cur}/{disp_max} ({disp_pct})")
+    print(f"Keyboard:           {kbd_cur}/{kbd_max} ({kbd_pct})")
+    print(
+        f"Keyboard Auto-On:   {kbd_should_on} (thresholds: ON <= {cfg['kbd_lux_dark']:.0f} lux, OFF >= {cfg['kbd_lux_bright']:.0f} lux)"
+    )
+    print(f"Keyboard Cap/Delta: max {cfg['kbd_max_pct']:.0f}% (delta: {kbd_delta:+.1f}%)")
+    print(f"Auto-Screen:        {'Enabled' if cfg['auto_screen'] else 'Disabled'}")
+    if cfg["auto_screen"] and predicted_pct is not None:
+        print(
+            f"ML Model Target:    {predicted_pct:.1f}% (gradual ramp: {cfg['ramp_step_pct']}% step / {cfg['ramp_interval_ms']}ms)"
+        )
+    print(f"ML Learned Count:   {len(model.observations)} manual adjustments recorded")
+
+
+def print_model_status():
+    model = AdaptiveBrightnessModel()
+    raw_lux = get_raw_lux()
+    print("=== Adaptive Brightness Machine Learning Model ===")
+    print(f"Model File:          {model.filepath}")
+    print(f"Saved On Disk:       {'Yes' if os.path.isfile(model.filepath) else 'No (using baseline defaults)'}")
+    print(f"Learned Adjustments: {len(model.observations)}")
+    if raw_lux is not None:
+        predicted = model.predict(raw_lux)
+        print(f"Current Lux:         {raw_lux:.1f} lux --> Target: {predicted:.1f}%")
+    print("\nAnchors (Ambient Lux -> Target Screen %):")
+    for lux, pct in model.anchors:
+        print(f"  {lux:7.1f} lux  -->  {pct:5.1f}%")
+    if model.observations:
+        print("\nRecent Recorded Adjustments (Lux -> User %):")
+        for obs in model.observations[-5:]:
+            print(f"  {obs[0]:7.1f} lux  -->  {obs[1]:5.1f}%")
 
 
 def run_daemon():
-    running = True
+    mgr = AmbientBacklightManager()
+    mgr.running = True
 
     def handle_signal(sig, frame):
-        nonlocal running
-        running = False
+        mgr.running = False
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    mgr = AmbientBacklightManager()
-    # Initial sync
+    # Initial sync on daemon launch: instant (no ramp) to hit target immediately
     mgr.sync(ramp_screen=False)
 
-    while running:
+    while mgr.running:
         try:
-            cfg = load_config()
-            interval = cfg.get("poll_interval", 2.5)
-            time.sleep(interval)
+            # 1. Check if user made a manual adjustment that is ready to learn
+            mgr.check_and_learn_manual_adjustment()
+
+            # 2. Check ambient & lid; smoothly glide by 0.5% steps if target shifted
             mgr.sync(ramp_screen=True)
+
+            # 3. Responsive polling: sleep in small intervals to capture manual adjustments
+            cfg = load_config()
+            poll_interval = cfg.get("poll_interval", 2.5)
+            end_time = time.time() + poll_interval
+            while mgr.running and time.time() < end_time:
+                time.sleep(0.25)
+                mgr.check_and_learn_manual_adjustment()
         except Exception:
-            time.sleep(3.0)
+            time.sleep(2.0)
 
 
 def main():
@@ -388,14 +624,32 @@ def main():
     group.add_argument("--daemon", action="store_true", help="Run background monitoring daemon")
     group.add_argument("--sync", action="store_true", help="Sync backlights once immediately")
     group.add_argument("--status", action="store_true", help="Print ambient & backlight status")
-    group.add_argument("--toggle-auto-screen", action="store_true", help="Toggle screen auto-brightness on/off")
-    group.add_argument("--bias-up", action="store_true", help="Increase screen ambient bias by 5%")
-    group.add_argument("--bias-down", action="store_true", help="Decrease screen ambient bias by 5%")
-    group.add_argument("--bias-reset", action="store_true", help="Reset screen ambient bias to 0%")
-    group.add_argument("--kbd-up", action="store_true", help="Increase keyboard scale factor")
-    group.add_argument("--kbd-down", action="store_true", help="Decrease keyboard scale factor")
-    group.add_argument("--kbd-set", type=int, metavar="VAL", help="Set keyboard brightness directly (0-255)")
+    group.add_argument(
+        "--manual-adjust",
+        type=int,
+        metavar="VAL",
+        help="Record a manual screen brightness adjustment (0-500) for ML learning",
+    )
+    group.add_argument(
+        "--model-status", action="store_true", help="Show Adaptive Brightness ML model details"
+    )
+    group.add_argument(
+        "--model-reset", action="store_true", help="Reset Adaptive Brightness ML model to factory baseline"
+    )
+    group.add_argument(
+        "--toggle-auto-screen", action="store_true", help="Toggle screen auto-brightness on/off"
+    )
+    group.add_argument("--kbd-up", action="store_true", help="Increase keyboard delta (+5%)")
+    group.add_argument("--kbd-down", action="store_true", help="Decrease keyboard delta (-5%)")
+    group.add_argument(
+        "--kbd-set", type=int, metavar="VAL", help="Set keyboard brightness directly (0-255)"
+    )
     group.add_argument("--kbd-toggle", action="store_true", help="Toggle keyboard backlight on/off")
+
+    # Backward-compatible bias flags
+    group.add_argument("--bias-up", action="store_true", help=argparse.SUPPRESS)
+    group.add_argument("--bias-down", action="store_true", help=argparse.SUPPRESS)
+    group.add_argument("--bias-reset", action="store_true", help=argparse.SUPPRESS)
 
     args = parser.parse_args()
 
@@ -405,29 +659,32 @@ def main():
         sync_all()
     elif args.status:
         print_status()
+    elif args.manual_adjust is not None:
+        record_manual_adjustment(args.manual_adjust)
+    elif args.model_status:
+        print_model_status()
+    elif args.model_reset:
+        model = AdaptiveBrightnessModel()
+        model.reset()
+        print("Adaptive Brightness ML model reset to factory defaults (30% at 485 lux).")
+        sync_all()
     elif args.toggle_auto_screen:
         cfg = load_config()
         new_state = not cfg["auto_screen"]
         save_config_auto_screen(new_state)
         print(f"Auto-Screen brightness: {'Enabled' if new_state else 'Disabled'}")
         sync_all()
-    elif args.bias_up:
-        adjust_screen_bias(5)
-    elif args.bias_down:
-        adjust_screen_bias(-5)
-    elif args.bias_reset:
-        save_screen_bias(0)
-        print("Screen ambient bias reset to 0%")
-        sync_all()
     elif args.kbd_up:
-        scale = min(2.5, get_scale() + 0.1)
-        save_scale(scale)
-        print(f"Keyboard scale factor: {scale:.2f}x")
+        cfg = load_config()
+        delta = min(30.0, get_kbd_delta(cfg) + 5.0)
+        save_kbd_delta(delta)
+        print(f"Keyboard delta: {delta:+.1f}%")
         sync_all()
     elif args.kbd_down:
-        scale = max(0.2, get_scale() - 0.1)
-        save_scale(scale)
-        print(f"Keyboard scale factor: {scale:.2f}x")
+        cfg = load_config()
+        delta = max(-30.0, get_kbd_delta(cfg) - 5.0)
+        save_kbd_delta(delta)
+        print(f"Keyboard delta: {delta:+.1f}%")
         sync_all()
     elif args.kbd_set is not None:
         set_kbd_brightness(args.kbd_set)
@@ -441,6 +698,8 @@ def main():
         else:
             sync_all()
             print("Keyboard backlight toggled ON")
+    elif args.bias_up or args.bias_down or args.bias_reset:
+        sync_all()
     else:
         sync_all()
 

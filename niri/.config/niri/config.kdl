@@ -589,3 +589,8 @@ binds {
     // to avoid accidental sleeps; sleep via closing the lid (or swayidle, if kept).
     // Mod+Shift+P { power-off-monitors; }
 }
+
+switch-events {
+    lid-close { spawn "/home/davideresigotti/.config/niri/scripts/backlight.sh" "lid-close"; }
+    lid-open { spawn "/home/davideresigotti/.config/niri/scripts/backlight.sh" "lid-open"; }
+}

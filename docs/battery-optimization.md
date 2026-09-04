@@ -49,17 +49,20 @@ The system continuously balances peak performance on **AC power** with aggressiv
 - **Summary**: `mpvpaper` is dynamically replaced by `/usr/bin/swaybg` on battery power or when viewing static images. Eliminates 17 background threads, >33,000 context switches/sec, and over 1.3 GB of memory allocations, reducing wallpaper CPU usage to **0.0%**.
 - **Daemon**: `waypaper-power-watcher.service` smoothly extracts 4K static frames from video wallpapers and hot-swaps between video on AC and static image on battery without screen flash.
 
-### B. Ambient Light Sensor (ALS) & Backlight Automation
+### B. Ambient Light Sensor (ALS), Adaptive ML & Backlight Automation
 - **Full Guide**: [`docs/battery-optimization/display-and-keyboard.md`](battery-optimization/display-and-keyboard.md)
 - **Summary**: Uses the Apple Always-On Processor (`aop-sensors-als`) to continuously monitor room lux (sampling takes 18 µs, < 0.02% CPU).
-- **Keyboard Power Savings**: In bright rooms (> 55 lux), the keyboard backlight automatically turns **OFF**, eliminating ~150 mW – 250 mW of wasted LED power. In dim rooms (< 30 lux), it turns **ON** proportionally to screen brightness.
-- **Screen Auto-Brightness**: Applies a smooth perceptual logarithmic curve in 5% steps with user bias memory (<kbd>F1</kbd>/<kbd>F2</kbd>).
+- **Machine Learning Adaptive Curve**: Pure Python Kernel Anchor Spline learns personalized brightness preferences from manual <kbd>F1</kbd>/<kbd>F2</kbd> adjustments, starting at a power-saving **30% baseline** in room lighting (~485 lux).
+- **Smooth Gradual Ramping**: Transitions smoothly by **0.5% increments** every 50ms instead of abrupt jumps.
+- **Keyboard Backlight**: Turns **OFF** in bright rooms (> 55 lux) to eliminate ~150 mW – 250 mW of drain. In dim rooms (< 30 lux), it turns **ON** following screen brightness + delta, strictly capped at **50% max** (`128/255`).
+- **Lid Clamshell**: Dims panel and keyboard to 0% when closed while deep sleep is inhibited for active tasks.
 
 ### C. System-Level & Hardware Power Tuning
 - **Full Guide**: [`docs/battery-optimization/system-level.md`](battery-optimization/system-level.md)
 - **Summary**:
   - **Hardware Eco Mode**: Automatically enables PCIe ASPM `powersupersave`, Genesys SD Card reader autosuspend (`D3hot`/`D3cold`), and TuneD `power-saver` (`vm.laptop_mode=5`, 15-second writebacks). Interactive toggle in Waybar: `[ 󰍛 hw off ]`.
   - **Dynamic KDE Connect**: Prevents background Wi-Fi UDP discovery broadcasts on battery. Toggleable on demand via Waybar: `[ 󰄡 off ]`.
+  - **Lid Sleep Mode Toggle**: Interactive toggle in Waybar's left cluster: `[ 󰒲 sleep on ]`. When enabled, closing the lid suspends the system (`s2idle`) to maximize battery life. When disabled (`[ 󰒲 sleep off ]`), `systemd-inhibit` prevents deep sleep so background compilations, downloads, or servers continue running uninterrupted while Niri turns off the display.
   - **Akonadi & MySQL**: Shuts down background PIM database servers on battery, freeing >534 MB of RAM and 108 background threads.
   - **Waybar Zero-Forking**: Replaced shell subshells with native formatting, eliminating ~14,400 process forks/hr.
   - **Session Autostarts**: Suppresses background bloat (`geoclue`, `kunifiedpush`, `sealertauto`, `ModemManager`).
@@ -68,18 +71,25 @@ The system continuously balances peak performance on **AC power** with aggressiv
 
 ## 4. Waybar Interactive Layout Reference
 
-### Discharging on Battery:
+### Left Cluster (Workspaces & Sleep Mode):
+```
+[ 1 2 3 ] [ tray ] [ 󰒲 sleep on ] [  mpris ]
+```
+- Click `[ 󰒲 sleep on ]` $\rightarrow$ Toggles to `[ 󰒲 sleep off ]` (inhibits deep sleep on lid close; screen turns off but tasks keep running).
+- Click `[ 󰒲 sleep off ]` $\rightarrow$ Toggles to `[ 󰒲 sleep on ]` (restores battery-saving deep sleep on lid close).
+
+### Right Cluster (Discharging on Battery):
 ```
 [ 󰍛 hw off ] [ 󰄡 off ] [ bat 41% 󰿟 vol 40% 󰿟 mem 22% 󰿟 cpu 2% ]
 ```
 - Click `[ 󰍛 hw off ]` $\rightarrow$ Toggles to `[ 󰍛 hw on ]` (restores full hardware performance).
 - Click `[ 󰄡 off ]` $\rightarrow$ Toggles to `[ 󰄡 on ]` (starts KDE Connect sync).
 
-### Connected to AC Power:
+### Right Cluster (Connected to AC Power):
 ```
 [ bat 80%  󰿟 vol 40% 󰿟 mem 22% 󰿟 cpu 5% ]
 ```
-- Both toggles hide automatically to keep the bar minimal and clean.
+- Hardware and KDE Connect toggles hide automatically to keep the bar minimal and clean.
 
 ---
 
@@ -98,6 +108,7 @@ The system continuously balances peak performance on **AC power** with aggressiv
 | **Cycle wallpaper manually** | `~/.config/waypaper/scripts/waypaper-cycle-once` (or `Mod+Shift+W`) |
 | **Toggle hardware eco mode** | `~/.config/waybar/scripts/hardware-power-toggle.sh --toggle` |
 | **Toggle KDE Connect** | `~/.config/waybar/scripts/kdeconnect-toggle.sh --toggle` |
+| **Toggle Lid Deep Sleep mode** | `~/.config/waybar/scripts/deep-sleep-toggle.sh --toggle` |
 | **Restart power watcher service** | `systemctl --user restart waypaper-power-watcher.service` |
 | **Restart backlight watcher service** | `systemctl --user restart kbd-backlight-watcher.service` |
 | **Restart Waybar** | `systemctl --user restart waybar.service` |
@@ -115,6 +126,7 @@ All power optimization configurations are tracked under GNU Stow in `~/dotfiles/
   - `docs/battery-optimization/system-level.md`
 - **Backlight & Ambient Sensing**:
   - `niri/.config/niri/ambient.conf`
+  - `niri/.config/niri/scripts/adaptive_model.py`
   - `niri/.config/niri/scripts/kbd-backlight-watcher`
   - `niri/.config/niri/scripts/backlight.sh`
   - `niri/.config/systemd/user/kbd-backlight-watcher.service`
@@ -130,6 +142,8 @@ All power optimization configurations are tracked under GNU Stow in `~/dotfiles/
   - `/usr/local/bin/hardware-power-toggle` (root controller)
   - `waybar/.config/waybar/scripts/hardware-power-toggle.sh`
   - `waybar/.config/waybar/scripts/kdeconnect-toggle.sh`
+  - `waybar/.config/waybar/scripts/deep-sleep-toggle.sh`
+  - `waybar/.config/systemd/user/deep-sleep-inhibit.service`
   - `/etc/sudoers.d/99-hardware-power-toggle`
   - `/etc/udev/rules.d/99-pci-pm.rules`
   - `/etc/tmpfiles.d/aspm.conf`
