@@ -1,11 +1,48 @@
 #!/usr/bin/env bash
+# Automatic Wallpaper Rotation Daemon
+# - Rotates wallpaper every 60 minutes on AC power.
+# - Disables automatic rotation on battery (manual rotation via Mod+Shift+W remains available).
 set -euo pipefail
 
 WAYPAPER="$HOME/.local/bin/waypaper"
-INTERVAL="${WAYPAPER_ROTATE_INTERVAL:-600}"
+AC_INTERVAL="${WAYPAPER_ROTATE_INTERVAL:-3600}" # 60 minutes on AC
 
-"$WAYPAPER" --random
+is_on_ac() {
+    local has_battery=0
+    for ps in /sys/class/power_supply/*; do
+        if [[ -f "$ps/type" ]]; then
+            local type
+            type="$(cat "$ps/type" 2>/dev/null || true)"
+            if [[ "$type" == "Battery" ]]; then
+                has_battery=1
+            elif [[ "$type" == "Mains" || "$type" == "USB" || "$type" == "USB_PD" || "$type" == "AC" ]]; then
+                if [[ -f "$ps/online" && "$(cat "$ps/online" 2>/dev/null || true)" == "1" ]]; then
+                    return 0
+                fi
+            fi
+        fi
+    done
+    if [[ "$has_battery" -eq 0 ]]; then
+        return 0
+    fi
+    return 1
+}
+
+# Initial rotation on startup if on AC power
+if is_on_ac; then
+    "$WAYPAPER" --random 2>/dev/null || true
+fi
+
+elapsed=0
 while true; do
-    sleep "$INTERVAL"
-    "$WAYPAPER" --random
+    sleep 30
+    if is_on_ac; then
+        elapsed=$((elapsed + 30))
+        if [[ "$elapsed" -ge "$AC_INTERVAL" ]]; then
+            "$WAYPAPER" --random 2>/dev/null || true
+            elapsed=0
+        fi
+    else
+        elapsed=0
+    fi
 done

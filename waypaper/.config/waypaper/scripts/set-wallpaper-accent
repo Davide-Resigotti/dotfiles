@@ -50,28 +50,7 @@ is_on_ac_power() {
     return 1
 }
 
-# If on battery and chosen wallpaper is a video, switch mpvpaper to static frame
-if ! is_on_ac_power && [[ ! "$WALLPAPER" =~ \.(jpg|jpeg|png|webp|avif)$ ]]; then
-    # If mpvpaper was just launched asynchronously, wait briefly for the socket to appear
-    for _ in {1..30}; do
-        [[ -S "/tmp/mpv-socket-All" ]] && break
-        sleep 0.1
-    done
-
-    if [[ -S "/tmp/mpv-socket-All" ]]; then
-        CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/wallpaper-frames"
-        mkdir -p "$CACHE_DIR"
-        BASE="$(basename "$WALLPAPER")"
-        FRAME="$CACHE_DIR/${BASE%.*}.jpg"
-        if [[ ! -f "$FRAME" ]] && command -v ffmpeg &>/dev/null; then
-            ffmpeg -y -ss 00:00:01 -i "$WALLPAPER" -vframes 1 -q:v 2 "$FRAME" 2>/dev/null || true
-        fi
-        if [[ -f "$FRAME" ]]; then
-            sleep 0.05
-            printf "loadfile \"%s\"\nset pause yes\n" "$FRAME" | socat - /tmp/mpv-socket-All 2>/dev/null || true
-        fi
-    fi
-fi
+# Accent extraction and application begins immediately
 if [[ -f "$DIR/.color" ]]; then
     CUSTOM_COLOR="$(head -n1 "$DIR/.color" | tr -d '[:space:]')"
     if [[ -n "$CUSTOM_COLOR" ]]; then

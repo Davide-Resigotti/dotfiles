@@ -1,32 +1,30 @@
 #!/usr/bin/env python3
 """
-Dynamic Wallpaper Power Watcher
-Switches video wallpapers between live 60fps video (on AC power) and
-plain static 4K image frames with paused mpv (on battery) to eliminate battery drain.
+Dynamic Power Watcher
+Coordinates power-saving features across the system on AC vs Battery:
+1. Wallpaper: switches between live 60fps video (AC) and zero-overhead swaybg (Battery / photos).
+2. Power profile: switches TuneD via D-Bus to 'power-saver' on battery, 'balanced' on AC.
+3. KDE Connect: turns off KDE Connect on battery to eliminate background UDP scans (toggleable in Waybar).
+4. Akonadi & MySQL: stops Kalendarac/Akonadi on battery to save ~534MB RAM and disk writes; resumes on AC.
 """
 
 import glob
-import json
 import os
 import select
-import socket
 import subprocess
 import sys
 import time
 
 WP_CONFIG = os.path.expanduser("~/.config/waypaper/config.ini")
 CACHE_DIR = os.path.expanduser("~/.cache/wallpaper-frames")
-MPV_SOCKET = "/tmp/mpv-socket-All"
+MPVPAPER_BIN = os.path.expanduser("~/.local/bin/mpvpaper-bin")
 VIDEO_EXTS = (".mp4", ".mkv", ".webm", ".mov", ".avi")
 _FRAME_CACHE = {}
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 
+
 def is_on_ac():
-    """
-    Checks hardware power line online status.
-    Does NOT check charging status so 75% battery limits work properly.
-    """
     supplies = glob.glob("/sys/class/power_supply/*")
     if not supplies:
         return True
@@ -46,6 +44,7 @@ def is_on_ac():
             pass
     return not has_battery
 
+
 def get_current_wallpaper():
     if not os.path.isfile(WP_CONFIG):
         return None
@@ -62,20 +61,13 @@ def get_current_wallpaper():
         pass
     return None
 
+
 def is_video_file(path):
     if not path:
         return False
     ext = os.path.splitext(path)[1].lower()
     return ext in VIDEO_EXTS
 
-def find_video_for_frame(frame_path):
-    stem = os.path.splitext(os.path.basename(frame_path))[0]
-    for ext in VIDEO_EXTS:
-        pattern = os.path.join(os.path.expanduser("~/Pictures/Wallpapers"), "**", f"{stem}{ext}")
-        matches = glob.glob(pattern, recursive=True)
-        if matches:
-            return matches[0]
-    return None
 
 def get_static_frame(video_path):
     if video_path in _FRAME_CACHE and os.path.isfile(_FRAME_CACHE[video_path]):
@@ -99,100 +91,100 @@ def get_static_frame(video_path):
         return frame_path
     return video_path
 
-def send_mpv_raw(command):
-    """Send command to mpv socket. Returns (success, response_dict)."""
-    if not os.path.exists(MPV_SOCKET):
-        return False, None
+
+def set_power_profile(is_ac):
+    action = "off" if is_ac else "on"
+    profile = "balanced" if is_ac else "power-saver"
     try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-            s.settimeout(0.5)
-            s.connect(MPV_SOCKET)
-            payload = json.dumps({"command": command}) + "\n"
-            s.sendall(payload.encode())
-            raw = s.recv(4096).decode()
-            if not raw:
-                return True, None
-            data = json.loads(raw.splitlines()[0])
-            return True, data
-    except (ConnectionRefusedError, FileNotFoundError):
-        try:
-            os.remove(MPV_SOCKET)
-        except OSError:
-            pass
-        return False, None
+        subprocess.run(["sudo", "-n", "/usr/local/bin/hardware-power-toggle", action],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        subprocess.run(["pkill", "-RTMIN+9", "waybar"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        print(f"[{time.strftime('%T')}] Hardware power tuning synced ({action}), profile: {profile}", flush=True)
+    except Exception as e:
+        print(f"Failed to switch power profile: {e}", file=sys.stderr)
+
+
+def sync_kdeconnect(is_ac):
+    try:
+        if is_ac:
+            subprocess.run(["systemctl", "--user", "start", "app-org.kde.kdeconnect.daemon@autostart.service"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        else:
+            subprocess.run(["systemctl", "--user", "stop", "app-org.kde.kdeconnect.daemon@autostart.service"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        # Refresh waybar kdeconnect toggle module
+        subprocess.run(["pkill", "-RTMIN+8", "waybar"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
     except Exception:
-        return False, None
+        pass
 
-def send_mpv(command):
-    ok, _ = send_mpv_raw(command)
-    return ok
 
-def get_mpv_property(name):
-    ok, res = send_mpv_raw(["get_property", name])
-    if ok and isinstance(res, dict) and res.get("error") == "success":
-        return res.get("data")
-    return None
+def sync_akonadi(is_ac):
+    try:
+        if is_ac:
+            subprocess.run(["systemctl", "--user", "start", "app-org.kde.kalendarac@autostart.service"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        else:
+            subprocess.run(["systemctl", "--user", "stop", "app-org.kde.kalendarac@autostart.service", "akonadi_control.service"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    except Exception:
+        pass
 
-def sync_power(is_ac):
-    """
-    Ensure mpv is in the correct state for the given power mode:
-    - On AC: live video wallpaper playing, unpaused.
-    - On Battery: static 4K frame loaded, paused.
-    Returns True if mpv is reachable and properly synchronized, False otherwise.
-    """
-    if not os.path.exists(MPV_SOCKET):
-        return False
 
-    mpv_path = get_mpv_property("path")
-    mpv_paused = get_mpv_property("pause")
-    if mpv_path is None:
-        return False
-
+def sync_wallpaper(is_ac):
     wp = get_current_wallpaper()
+    if not wp or not os.path.exists(wp):
+        return
 
-    # Determine original video source
-    video_source = None
-    if wp and is_video_file(wp):
-        video_source = wp
-    elif is_video_file(mpv_path):
-        video_source = mpv_path
-    elif mpv_path and CACHE_DIR in mpv_path:
-        video_source = find_video_for_frame(mpv_path)
+    is_video = is_video_file(wp)
 
-    # If this is not a video wallpaper (i.e. static image wallpaper)
-    if not video_source:
-        if not is_ac and not mpv_paused:
-            send_mpv(["set_property", "pause", True])
-        elif is_ac and mpv_paused:
-            send_mpv(["set_property", "pause", False])
-        return True
-
-    if is_ac:
-        # On AC: live video playing unpaused
-        need_load = (mpv_path != video_source)
-        need_unpause = (mpv_paused is not False)
-        if need_load or need_unpause:
-            print(f"[{time.strftime('%T')}] Power connected (AC). Playing live video: {video_source}", flush=True)
-            if need_load:
-                send_mpv(["loadfile", video_source])
-                time.sleep(0.05)
-            send_mpv(["set_property", "pause", False])
-        return True
+    if is_ac and is_video:
+        # Check if mpvpaper-bin is already running
+        mpv_running = subprocess.run(["pgrep", "-f", "mpvpaper-bin"], stdout=subprocess.DEVNULL).returncode == 0
+        if not mpv_running:
+            print(f"[{time.strftime('%T')}] AC connected. Starting live video wallpaper in mpvpaper-bin: {wp}", flush=True)
+            subprocess.run(["pkill", "-f", "swaybg"], check=False)
+            time.sleep(0.1)
+            subprocess.Popen([
+                MPVPAPER_BIN, "--fork",
+                "-o", "input-ipc-server=/tmp/mpv-socket-All loop panscan=1.0 --no-audio --hwdec=auto --image-display-duration=inf --background-color='#9A9996'",
+                "*", wp
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
-        # On Battery: static frame loaded and paused
-        frame = get_static_frame(video_source)
-        need_load = (mpv_path != frame)
-        need_pause = (mpv_paused is not True)
-        if need_load or need_pause:
-            print(f"[{time.strftime('%T')}] Power disconnected (Battery). Showing static image: {frame}", flush=True)
-            if need_load:
-                send_mpv(["loadfile", frame])
-                time.sleep(0.05)
-            send_mpv(["set_property", "pause", True])
-        return True
+        # On battery OR static photo: swaybg must handle it
+        target = wp
+        if is_video:
+            target = get_static_frame(wp)
+
+        # Stop mpvpaper-bin if running
+        try:
+            subprocess.run(["pkill", "-f", "mpvpaper-bin"], check=False)
+            for s in glob.glob("/tmp/mpv-socket-*"):
+                try:
+                    os.remove(s)
+                except OSError:
+                    pass
+        except Exception:
+            pass
+
+        # Check if swaybg is running
+        sway_running = subprocess.run(["pgrep", "-f", "swaybg"], stdout=subprocess.DEVNULL).returncode == 0
+        if not sway_running:
+            print(f"[{time.strftime('%T')}] Showing static wallpaper via swaybg: {target}", flush=True)
+            subprocess.Popen(
+                ["swaybg", "-i", target, "-m", "fill", "-c", "9A9996"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+
+
+def sync_all(is_ac):
+    set_power_profile(is_ac)
+    sync_kdeconnect(is_ac)
+    sync_akonadi(is_ac)
+    sync_wallpaper(is_ac)
+
 
 def main():
-    # Start udev monitor for power supply changes
     try:
         udev_proc = subprocess.Popen(
             ["udevadm", "monitor", "-u", "-s", "power_supply"],
@@ -203,22 +195,32 @@ def main():
     except Exception:
         udev_proc = None
 
+    last_ac = None
+    last_wp = None
+
     while True:
         try:
             current_ac = is_on_ac()
-            sync_power(current_ac)
+            current_wp = get_current_wallpaper()
 
-            # Wait for next udev power event or 1-second watchdog tick
+            # Trigger sync on power state change or wallpaper path change
+            if current_ac != last_ac or current_wp != last_wp:
+                sync_all(current_ac)
+                last_ac = current_ac
+                last_wp = current_wp
+
+            # Wait for next udev power event or 2-second tick
             if udev_proc and udev_proc.stdout:
-                r, _, _ = select.select([udev_proc.stdout], [], [], 1.0)
+                r, _, _ = select.select([udev_proc.stdout], [], [], 2.0)
                 if r:
                     udev_proc.stdout.readline()
-                    time.sleep(0.1)  # small debounce for sysfs update
+                    time.sleep(0.1)  # small debounce
             else:
-                time.sleep(1.0)
+                time.sleep(2.0)
 
         except Exception as e:
-            time.sleep(1.0)
+            time.sleep(2.0)
+
 
 if __name__ == "__main__":
     main()

@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Ensure mpvpaper daemon is running in user session if backend is mpvpaper
-if ! pgrep -f "socket-All" >/dev/null 2>&1; then
-    systemd-run --user --unit=mpvpaper mpvpaper -o "input-ipc-server=/tmp/mpv-socket-All loop panscan=1.0 --no-audio --hwdec=auto --image-display-duration=inf --background-color='#9A9996'" '*' "$HOME/Pictures/Wallpapers/Orange/walter-kim-mk3-12-ultrawide.jpg" 2>/dev/null || true
-    sleep 0.3
-fi
-
 "$HOME/.local/bin/waypaper" --random
+
