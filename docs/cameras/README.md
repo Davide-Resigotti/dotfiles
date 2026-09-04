@@ -11,7 +11,7 @@ Live RTSP camera streams accessible directly as Fuzzel applications and CLI shor
 | **Cameras** | `view-camera both` | Both streams stacked vertically | `cameras` |
 
 > [!TIP]
-> An automated live-view popup is also available for the Yard camera triggered by Home Assistant presence and door events. See [Yard Camera Presence Popup Notification](yard-presence-popup.md).
+> An automated live-view popup is also available for the Yard camera triggered by Home Assistant presence and perimetral beam sensor events. See [Yard Camera Presence Popup Notification](yard-presence-popup.md).
 
 ## Usage
 

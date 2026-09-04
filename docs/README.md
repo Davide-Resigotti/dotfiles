@@ -31,7 +31,7 @@ Tailored specifically for Apple Silicon (M2 Pro) running Fedora Asahi Remix Linu
 Integrated surveillance feeds and real-time smart home video notifications:
 
 - [**RTSP Camera Viewers**](cameras/README.md): Low-latency live streams via `mpv`, multi-stream stacked layout with PipeWire audio mixing, Apple Silicon ARM NEON decode optimizations, and floating Niri window controls.
-- [**Yard Camera Presence Popup Notification**](cameras/yard-presence-popup.md): Automated live-view video notification daemon triggered by Home Assistant and Mosquitto MQTT when occupancy or door events occur, with click-to-expand controls.
+- [**Yard Camera Presence Popup Notification**](cameras/yard-presence-popup.md): Automated live-view video notification daemon triggered by Home Assistant and Mosquitto MQTT when occupancy or perimetral beam sensor events occur, with click-to-expand controls.
 
 ---
 

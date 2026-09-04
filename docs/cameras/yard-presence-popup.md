@@ -6,7 +6,7 @@ An automated live-view video notification system for the yard camera (`rtsp://19
 
 ## Overview
 
-When presence is detected outside or when you close the door, a live mid-small floating camera popup appears at the top-right border of your screen with full audio. It automatically stays on screen until dismissed or until no person has been in frame for 5 seconds.
+When presence is detected outside or when the perimetral beam sensors are triggered, a live mid-small floating camera popup appears at the top-right border of your screen with full audio. It automatically stays on screen until dismissed or until no occupancy has been detected for 10 seconds.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -27,8 +27,8 @@ When presence is detected outside or when you close the door, a live mid-small f
 
 ### Triggers & Cooldown
 1. **Occupancy Detected (Person, Car, etc.)**: `binary_sensor.yard_all_occupancy` transitions to `on`.
-   - **5-Minute Debounce / Cooldown**: Evaluates a template condition checking that the yard has been clear of occupancy for at least 5 minutes (`total_seconds() >= 300`) before popping up again. This prevents the popup from continuously opening and closing if someone is moving in and out of frame.
-2. **Door Closed**: `binary_sensor.door_sensor` transitions to `off` (closed). Always triggers without cooldown.
+   - **3-Minute Debounce / Cooldown**: Evaluates a template condition checking that the yard has been clear of occupancy for at least 3 minutes before popping up again. This prevents the popup from continuously opening and closing if someone is moving in and out of frame.
+2. **Perimetral Beam Sensors Triggered**: `binary_sensor.perimetral_sensors` transitions state. Always triggers without cooldown.
 
 ### Dismissal Modes
 - **Automatic Auto-Close**: Once no occupancy is detected in the yard frame for **10 continuous seconds**, the popup automatically closes.
@@ -64,7 +64,7 @@ flowchart LR
 - **Mode**: `restart`
 - **Triggers**:
   - `binary_sensor.yard_all_occupancy` (`to: on`)
-  - `binary_sensor.door_sensor` (`to: off`)
+  - `binary_sensor.perimetral_sensors` (`to: [off, on]`)
   - `binary_sensor.yard_all_occupancy` (`to: off` for `00:00:10`)
 - **Conditions**:
   ```yaml
@@ -72,13 +72,13 @@ flowchart LR
   conditions:
     - condition: trigger
       id:
-        - door_closed
+        - perimetral_sensors_triggered
         - occupancy_cleared
     - condition: template
       value_template: >-
         {{ (trigger.from_state is not defined) or
            (trigger.from_state is none) or
-           ((now() - trigger.from_state.last_changed).total_seconds() >= 300) }}
+           ((now() - trigger.from_state.last_changed).total_seconds() >= 180) }}
   ```
 - **Actions**: Calls `mqtt.publish` on topic `linux/yard_presence_popup` with payload `open` or `close`.
 

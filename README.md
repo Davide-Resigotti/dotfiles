@@ -28,7 +28,7 @@ Here are the defining features of this setup (click any highlight to read its de
   <!-- Media: add Home Assistant widget/menu screenshot here -->
 
 - **[RTSP Surveillance Feeds & Yard Presence Popups](docs/cameras/yard-presence-popup.md)**:
-  Low-latency RTSP camera streaming via `mpv` with PipeWire audio mixing ([guide](docs/cameras/README.md)), plus an automated mid-small video popup at the screen border triggered via Home Assistant & Mosquitto MQTT whenever presence or door closure is detected.
+  Low-latency RTSP camera streaming via `mpv` with PipeWire audio mixing ([guide](docs/cameras/README.md)), plus an automated mid-small video popup at the screen border triggered via Home Assistant & Mosquitto MQTT whenever presence or perimetral beam sensors are triggered.
   <!-- Media: add yard camera popup screenshot/video here -->
 
 - **[Strict XDG Architecture & Antigravity AI Discipline](docs/system-organization/README.md)**:
