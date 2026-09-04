@@ -91,11 +91,24 @@ margin-left: 4px;
 #tray,
 #cpu,
 #custom-clock,
+#custom-hardware,
+#custom-kdeconnect,
 #battery,
 #pulseaudio {
   min-width: 12px;
   padding: 0 4px;
   margin: 1px 3px 1px 3px;
+  opacity: 1;
+}
+
+#custom-hardware.off,
+#custom-kdeconnect.off {
+  opacity: 0.5;
+}
+
+#custom-hardware.on,
+#custom-kdeconnect.on {
+  color: @accent;
   opacity: 1;
 }
 
@@ -197,4 +210,4 @@ animation: repeat;
     color: @accent;
 }
 
-/* accent-ts: 1788470298415913884 */
+/* accent-ts: 1788506536470895398 */

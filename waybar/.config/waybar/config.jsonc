@@ -11,12 +11,12 @@
     "custom/separator",
     "tray",
     "custom/separator2",
-    "custom/separator5",
-    "mpris",
-    "custom/separator6"
+    "mpris"
   ],
   "modules-center": ["custom/separator", "custom/clock", "custom/separator2"],
   "modules-right": [
+    "custom/hardware",
+    "custom/kdeconnect",
     "custom/separator",
     "battery",
     "custom/separator3",
@@ -44,17 +44,19 @@
     "format": "󰿟",
     "tooltip": false
   },
-  "custom/separator5": {
-    "exec": "sh -c 'if pgrep -x cliamp >/dev/null || playerctl status 2>/dev/null | grep -qE \"Playing|Paused\"; then echo \"{\\\"text\\\":\\\"[\\\",\\\"class\\\":\\\"show\\\"}\"; else echo \"{\\\"text\\\":\\\"\\\",\\\"class\\\":\\\"hide\\\"}\"; fi'",
+  "custom/hardware": {
+    "exec": "$HOME/.config/waybar/scripts/hardware-power-toggle.sh",
     "return-type": "json",
-    "interval": 2,
-    "format": "{}"
+    "signal": 9,
+    "interval": 30,
+    "on-click": "$HOME/.config/waybar/scripts/hardware-power-toggle.sh --toggle"
   },
-  "custom/separator6": {
-    "exec": "sh -c 'if pgrep -x cliamp >/dev/null || playerctl status 2>/dev/null | grep -qE \"Playing|Paused\"; then echo \"{\\\"text\\\":\\\"]\\\",\\\"class\\\":\\\"show\\\"}\"; else echo \"{\\\"text\\\":\\\"\\\",\\\"class\\\":\\\"hide\\\"}\"; fi'",
+  "custom/kdeconnect": {
+    "exec": "$HOME/.config/waybar/scripts/kdeconnect-toggle.sh",
     "return-type": "json",
-    "interval": 2,
-    "format": "{}"
+    "signal": 8,
+    "interval": 30,
+    "on-click": "$HOME/.config/waybar/scripts/kdeconnect-toggle.sh --toggle"
   },
   "custom/clock": {
     "exec": "date +'%H:%M %p - %A, %b %d' | tr '[:upper:]' '[:lower:]'",
@@ -70,7 +72,7 @@
     }
   },
   "memory": {
-    "interval": 2,
+    "interval": 10,
     "format": "mem {percentage:02}%",
     "states": {
       "warning": 50,
@@ -110,7 +112,7 @@
     "format-full": "bat_f {capacity}%",
     "tooltip-format-discharging": "{timeTo}",
     "tooltip-format-charging": "{timeTo}",
-    "interval": 5,
+    "interval": 15,
     "states": {
       "warning": 20,
       "critical": 10
@@ -134,8 +136,8 @@
     }
   },
   "mpris": {
-    "format": " {dynamic}",
-    "format-paused": "<span color='grey'>{status_icon} {dynamic}</span>",
+    "format": "[  {dynamic} ]",
+    "format-paused": "<span color='grey'>[ {status_icon} {dynamic} ]</span>",
     "title-len": 50,
     "dynamic-order": ["artist", "title"],
     "tooltip-format": "{player} ({status}):\n{artist} - {title}",
