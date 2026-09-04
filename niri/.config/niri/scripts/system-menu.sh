@@ -21,6 +21,11 @@ if ! command -v wofi >/dev/null 2>&1; then
     exit 1
 fi
 
+# Preload focus fix library to ensure modal search properly focuses the input entry
+if [[ -f "$HOME/.local/lib/wofi-focus-fix.so" ]]; then
+    export LD_PRELOAD="$HOME/.local/lib/wofi-focus-fix.so${LD_PRELOAD:+:$LD_PRELOAD}"
+fi
+
 WOFI_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/wofi/config"
 WOFI_STYLE="${XDG_CONFIG_HOME:-$HOME/.config}/wofi/style.css"
 

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Wrapper to inject wofi-focus-fix.so so that opening search focuses the input entry
+if [[ -f "$HOME/.local/lib/wofi-focus-fix.so" ]]; then
+    export LD_PRELOAD="$HOME/.local/lib/wofi-focus-fix.so${LD_PRELOAD:+:$LD_PRELOAD}"
+fi
+exec /usr/bin/wofi "$@"

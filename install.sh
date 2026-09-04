@@ -45,6 +45,12 @@ stow -v --restow niri waybar mako fuzzel wofi ghostty fontconfig xsettingsd gtk-
 # System Shortcuts & Details menu
 ln -sf "$HOME/.config/niri/scripts/system-menu.sh" "$HOME/.local/bin/system-menu"
 
+# Wofi modal focus fix library
+if [[ -f "$HOME/dotfiles/wofi/wofi-focus-fix.c" ]] && command -v gcc >/dev/null 2>&1; then
+    mkdir -p "$HOME/.local/lib"
+    gcc -shared -fPIC -O2 -o "$HOME/.local/lib/wofi-focus-fix.so" "$HOME/dotfiles/wofi/wofi-focus-fix.c" 2>/dev/null || true
+fi
+
 # HA toggles (.desktop Exec uses the bare name; needs ~/.local/bin on PATH)
 ln -sf "$HOME/.config/home-assistant/scripts/ha-toggle" "$HOME/.local/bin/ha-toggle"
 
