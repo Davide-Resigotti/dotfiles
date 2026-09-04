@@ -176,9 +176,9 @@ Machine-specific adjustments after restore:
     (names/modes come from `niri msg outputs`).
   * xsettingsd: adjust Gdk/UnscaledDPI in ~/.config/xsettingsd/xsettingsd.conf for your display.
   * The clipboard daemon binding expects `niri-copy-paste` on PATH (build from its own repo).
-  * Home Assistant: create ~/.config/home-assistant/token (chmod 600) with a long-lived
-    access token from your HA instance; ha-toggle reads it to call the local API.
-    The HA base URL lives in ~/.config/home-assistant/scripts/ha-toggle.
+  * Home Assistant: create ~/.config/home-assistant/url and ~/.config/home-assistant/token
+    (chmod 600) with your HA base URL and long-lived access token.
+    Both ha-toggle and the desktop launcher read this private configuration dynamically.
   * Neovim: Python provider is configured in ~/.config/nvim/.venv. For Python LSPs/formatters:
     pip install --user 'python-lsp-server[all]' pylsp-mypy python-lsp-black python-lsp-isort
   * ~/.local/bin must be on PATH for HA and custom scripts.

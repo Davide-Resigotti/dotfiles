@@ -34,3 +34,12 @@ __pycache__/
 *.mp4
 *.mkv
 *.webm
+
+# Uncommitted secrets, private URLs, and credentials (use *.template pattern)
+**/token
+**/url
+**/mqtt.conf
+**/server.env
+*.env
+!*.env.template
+!*.template

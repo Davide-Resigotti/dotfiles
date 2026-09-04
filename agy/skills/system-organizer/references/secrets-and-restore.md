@@ -21,10 +21,12 @@ For files that require secret tokens or private endpoints:
 4. Keep the live file with restricted permissions (`chmod 600`) in `$XDG_CONFIG_HOME`.
 5. Add patterns to `.gitignore` to prevent accidental staging.
 
-### Example: Home Assistant REST Token
-- Live token: `~/.config/home-assistant/token` (mode `0600`).
-- Ignored in git.
-- Script `dotfiles/home-assistant/.config/home-assistant/scripts/ha-toggle` reads the token at runtime from `~/.config/home-assistant/token`.
+### Example: Home Assistant REST URL & Token
+- Live configuration: `~/.config/home-assistant/url` and `~/.config/home-assistant/token` (mode `0600`).
+- Ignored in git (`.gitignore`).
+- Templates provided in repo: `dotfiles/home-assistant/.config/home-assistant/*.template`.
+- Scripts (`ha-toggle`, `ha-open`) read the URL and token at runtime from `~/.config/home-assistant/`.
+- Changing the URL locally (e.g. from local IP to public domain) takes effect immediately without modifying git-tracked files.
 
 ---
 

@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="http://homeassistant.local:8123"
+URL_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/home-assistant/url"
 TOKEN_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/home-assistant/token"
+
+if [[ -f "$URL_FILE" ]]; then
+    BASE_URL="$(head -n 1 "$URL_FILE" | tr -d '\r\n')"
+elif [[ -n "${HA_URL:-}" ]]; then
+    BASE_URL="$HA_URL"
+else
+    BASE_URL="http://homeassistant.local:8123"
+fi
 
 if [[ $# -lt 1 ]]; then
     notify-send -u critical "Home Assistant" "Usage: ha-toggle <entity_id>"

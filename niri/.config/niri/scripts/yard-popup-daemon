@@ -14,10 +14,33 @@ from datetime import datetime
 import paho.mqtt.client as mqtt
 
 # Configuration
-BROKER_HOST = "homeassistant.local"
-BROKER_PORT = 1883
-BROKER_USER = "mqtt"
-BROKER_PASS = "INSERT_MQTT_PASSWORD"
+CONFIG_PATH = os.path.expanduser("~/.config/niri/mqtt.conf")
+BROKER_HOST = os.environ.get("MQTT_BROKER_HOST", "homeassistant.local")
+BROKER_PORT = int(os.environ.get("MQTT_BROKER_PORT", 1883))
+BROKER_USER = os.environ.get("MQTT_BROKER_USER", "mqtt")
+BROKER_PASS = os.environ.get("MQTT_BROKER_PASS", "")
+
+if os.path.isfile(CONFIG_PATH):
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip('"').strip("'")
+                if k == "BROKER_HOST":
+                    BROKER_HOST = v
+                elif k == "BROKER_PORT":
+                    BROKER_PORT = int(v)
+                elif k == "BROKER_USER":
+                    BROKER_USER = v
+                elif k == "BROKER_PASS":
+                    BROKER_PASS = v
+    except Exception as e:
+        print(f"Failed to read {CONFIG_PATH}: {e}", file=sys.stderr)
+
 TOPIC = "linux/yard_presence_popup"
 CONTROLLER = os.path.expanduser("~/.local/bin/yard-popup-camera")
 
