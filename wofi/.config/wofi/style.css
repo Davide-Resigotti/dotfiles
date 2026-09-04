@@ -1,0 +1,65 @@
+@import "colors.css";
+
+* {
+    font-family: 'JetBrainsMono Nerd Font', monospace;
+    font-size: 13px;
+}
+
+window {
+    background-color: transparent;
+}
+
+#outer-box {
+    margin: 5px;
+    border: 2px solid @theme_border;
+    border-radius: 12px;
+    background-color: @theme_bg;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+    padding: 12px;
+}
+
+#input {
+    margin: 4px 6px 12px 6px;
+    padding: 8px 12px;
+    border: 1px solid @theme_field;
+    border-radius: 8px;
+    color: @theme_fg;
+    background-color: @theme_field;
+    outline: none;
+}
+
+#input:focus {
+    border: 1px solid @theme_accent;
+}
+
+#scroll {
+    margin: 4px 6px;
+    border: none;
+}
+
+#inner-box {
+    background-color: transparent;
+}
+
+#entry {
+    padding: 7px 10px;
+    margin: 2px 0;
+    border-radius: 6px;
+    background-color: transparent;
+    border: none;
+}
+
+#entry:selected {
+    background-color: @theme_selected;
+    border-left: 3px solid @theme_accent;
+}
+
+#text {
+    margin: 0;
+    padding: 0;
+    color: @theme_fg;
+}
+
+#text:selected {
+    color: @theme_selected_fg;
+}

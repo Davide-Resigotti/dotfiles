@@ -29,7 +29,7 @@ fi
 # Replace any legacy absolute dotfiles symlinks with clean stow-managed relative symlinks
 for l in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.gitconfig" \
          "$HOME/.config/niri" "$HOME/.config/waybar" "$HOME/.config/mako" "$HOME/.config/fuzzel" \
-         "$HOME/.config/xsettingsd" "$HOME/.config/fontconfig" "$HOME/.config/autostart" \
+         "$HOME/.config/wofi" "$HOME/.config/xsettingsd" "$HOME/.config/fontconfig" "$HOME/.config/autostart" \
          "$HOME/.config/gtk-3.0" "$HOME/.config/gtk-4.0" "$HOME/.config/ghostty"; do
     if [ -L "$l" ]; then
         target="$(readlink "$l")"
@@ -40,7 +40,10 @@ for l in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.gitconfi
 done
 
 # Packages -> stow symlinks them into $HOME (e.g. ~/.config/niri -> repo).
-stow -v --restow niri waybar mako fuzzel ghostty fontconfig xsettingsd gtk-3.0 gtk-4.0 autostart shell darkman xdg-desktop-portal theme home-assistant waypaper yazi tmux nvim
+stow -v --restow niri waybar mako fuzzel wofi ghostty fontconfig xsettingsd gtk-3.0 gtk-4.0 autostart shell darkman xdg-desktop-portal theme home-assistant waypaper yazi tmux nvim
+
+# System Shortcuts & Details menu
+ln -sf "$HOME/.config/niri/scripts/system-menu.sh" "$HOME/.local/bin/system-menu"
 
 # HA toggles (.desktop Exec uses the bare name; needs ~/.local/bin on PATH)
 ln -sf "$HOME/.config/home-assistant/scripts/ha-toggle" "$HOME/.local/bin/ha-toggle"

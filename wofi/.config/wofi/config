@@ -1,0 +1,14 @@
+mode=dmenu
+dmenu-parse_action=true
+allow_markup=true
+parse_search=true
+insensitive=true
+no_custom_entry=true
+term=ghostty
+width=860
+height=580
+prompt=System Shortcuts & Details > 
+location=center
+key_exit=Escape
+layer=top
+hide_scroll=true

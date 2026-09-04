@@ -306,6 +306,14 @@ window-rule {
     open-floating true
 }
 
+// System details popup terminal
+window-rule {
+    match app-id=r#"^system-details$"#
+    open-floating true
+    default-column-width { proportion 0.7; }
+    default-window-height { proportion 0.65; }
+}
+
 window-rule {
     geometry-corner-radius 12
     clip-to-geometry true
@@ -325,8 +333,8 @@ binds {
     // `niri msg action do-something`.
 
     // Mod-Shift-/, which is usually the same as Mod-?,
-    // shows a list of important hotkeys.
-    Mod+Shift+Slash { show-hotkey-overlay; }
+    // opens the Wofi System Shortcuts & Details menu.
+    Mod+Shift+Slash hotkey-overlay-title="System Shortcuts & Details Menu: wofi" { spawn-sh "$HOME/.config/niri/scripts/system-menu.sh"; }
 
     // Show clipboard history
     Mod+Shift+v { spawn "niri-copy-paste" "pick"; }

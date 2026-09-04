@@ -14,14 +14,15 @@ targets root-owned `/etc/keyd`, so `install.sh` needs sudo for it.)
 | `niri`       | `~/.config/niri`    | `config.kdl` (portable `$HOME` spawn paths), `scripts/` (theme apply + early-dark arming, wallpaper cycling) |
 | `waybar`     | `~/.config/waybar`  | `config.jsonc`, `style.css`, battery power toggles (`hardware-power-toggle.sh`, `kdeconnect-toggle.sh`) |
 | `mako`       | `~/.config/mako`    | notification daemon |
-| `fuzzel`     | `~/.config/fuzzel`  | launcher used by the clipboard picker |
+| `fuzzel`     | `~/.config/fuzzel`  | launcher used by the clipboard picker and application finder |
+| `wofi`       | `~/.config/wofi`    | launcher used by the System Shortcuts & Details menu (`Mod+Shift+/`) |
 | `ghostty`    | `~/.config/ghostty` | terminal config (`config`) |
 | `gtk-3.0`, `gtk-4.0` | `~/.config/gtk-{3,4}.0` | GTK theming + window-button assets (generated `*dank-colors.css` excluded) |
 | `xsettingsd` | `~/.config/xsettingsd` | GTK settings bridge |
 | `fontconfig` | `~/.config/fontconfig` | font aliases (Nerd Font -> Cascadia Code NF) |
 | `darkman`    | `~/.config/darkman`, `~/.local/share/darkman` | darkman config (fixed Milan coords) + transition hook |
 | `xdg-desktop-portal` | `~/.config/xdg-desktop-portal` | XDG desktop portal configuration |
-| `theme`     | `~/.config/theme`, `~/.local/bin/set-accent`, `~/.local/bin/toggle-theme`, `~/.local/share/applications` | Dynamic primary & system color accent dispatcher, Fuzzel theme toggle, and app launcher shortcuts |
+| `theme`     | `~/.config/theme`, `~/.local/bin/set-accent`, `~/.local/bin/toggle-theme`, `~/.local/share/applications` | Dynamic primary & system color accent dispatcher, Fuzzel & Wofi theme toggle, and app launcher shortcuts |
 | `home-assistant` | `~/.config/home-assistant/scripts` | `ha-toggle <entity>` — toggles a HA entity via the local REST API (token read from `~/.config/home-assistant/token`) |
 | `autostart`  | `~/.config/autostart` | XWayland video bridge, daemon autostart overrides (`geoclue`, `kunifiedpush`, `sealertauto`) |
 | `shell`      | `~/.bashrc`, `~/.bash_profile`, `~/.profile`, `~/.gitconfig`, `~/.local/bin/apply-hardware-power-tuning` | exports system color and accent variables, hardware power tuning installer |
@@ -37,7 +38,7 @@ targets root-owned `/etc/keyd`, so `install.sh` needs sudo for it.)
 
 ```sh
 # System packages
-sudo dnf install niri waybar mako fuzzel swaybg wtype wl-clipboard \
+sudo dnf install niri waybar mako fuzzel wofi swaybg wtype wl-clipboard \
   at xsettingsd fontconfig solaar ghostty python3-astral stow darkman \
   neovim tmux mpvpaper mpv python3-pip ripgrep fd-find fzf jq
 
