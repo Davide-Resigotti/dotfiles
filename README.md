@@ -127,16 +127,24 @@ The system features dynamic power management tailored for Apple Silicon (M2 Pro)
   - Autostart overrides in `autostart/.config/autostart/` suppress unneeded background daemons (`geoclue`, `kunifiedpush`, `sealertauto`) in Niri.
   - Disabled `ModemManager.service` (no WWAN card on MacBook) and converted CUPS to on-demand `cups.socket`.
 
-### 4. Display & Keyboard Backlight Auto-Sync (`kbd-backlight-watcher`)
+### 4. Ambient Light Sensor (ALS) & Backlight Automation (`kbd-backlight-watcher`)
 
-- **Proportional Threshold Control**:
-  - Managed via user systemd service (`kbd-backlight-watcher.service`) and `~/.config/niri/scripts/backlight.sh`.
-  - **Display < 50%**: Keyboard backlight automatically turns ON and scales **proportionally** to the screen brightness (e.g. 20% screen = 20% keyboard, 40% screen = 40% keyboard).
-  - **Display >= 50%**: Keyboard backlight automatically turns OFF (0).
-- **5% Step Increments**: Screen brightness steps in precise 5% increments (e.g. 5%, 10%, 15%... 50%... 100%).
+- **Hardware Ambient Light Sensor (ALS)**:
+  - Continuously samples the room illuminance via Apple Silicon's ultra-low-power AOP sensor (`aop-sensors-als`).
+  - Native sysfs read overhead is just **18 microseconds** (< 0.005% CPU); saving power by turning off LEDs in daytime.
+- **Keyboard Backlight**:
+  - **In Bright Light (> 55 lux)**: Automatically turns **OFF** (`0/255`), eliminating power waste when keys are already visible.
+  - **In Dim/Dark Light (< 30 lux)**: Automatically turns **ON** and scales proportionally to the display brightness.
+  - **Hysteresis & Clamshell Detection**: Hysteresis between 30 and 55 lux eliminates jitter. If the MacBook lid is closed, the keyboard backlight is always forced off.
+- **Screen Auto-Brightness (`auto_screen = true`)**:
+  - Maps ambient lux to optimal screen brightness using a smooth perceptual (logarithmic) curve in 5% increments.
+  - **User Bias**: Pressing <kbd>F1</kbd>/<kbd>F2</kbd> shifts your personal preference offset ($+5\% / -5\%$) across the entire ambient curve without fighting the daemon.
+- **Configuration (`~/.config/niri/ambient.conf`)**:
+  - Customize `kbd_lux_dark`, `kbd_lux_bright`, `auto_screen`, `screen_min_pct`, `screen_max_pct`, and `poll_interval`.
 - **Keybindings**:
-  - Display Brightness: <kbd>BrightnessUp</kbd> / <kbd>BrightnessDown</kbd> (F1/F2 or `XF86MonBrightnessUp`/`Down`) steps by 5%.
-  - Keyboard Brightness Scale: <kbd>Mod</kbd>+<kbd>BrightnessUp</kbd> / <kbd>Mod</kbd>+<kbd>BrightnessDown</kbd> (or dedicated <kbd>XF86KbdBrightnessUp</kbd>/<kbd>Down</kbd>) fine-tunes the proportionality scale factor.
+  - Display Brightness: <kbd>F1</kbd> / <kbd>F2</kbd> (or `XF86MonBrightnessDown`/`Up`) steps by 5% and shifts ambient bias.
+  - Keyboard Scale: <kbd>Mod</kbd>+<kbd>BrightnessUp</kbd> / <kbd>Mod</kbd>+<kbd>BrightnessDown</kbd> fine-tunes keyboard intensity.
+  - Toggle Auto-Screen: <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> toggles automatic screen brightness on/off.
 
 ### 5. Application Synchronizations
 

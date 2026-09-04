@@ -364,6 +364,7 @@ binds {
     XF86KbdBrightnessDown allow-when-locked=true { spawn-sh "$HOME/.config/niri/scripts/backlight.sh kbd-down"; }
     Mod+XF86MonBrightnessUp   allow-when-locked=true { spawn-sh "$HOME/.config/niri/scripts/backlight.sh kbd-up"; }
     Mod+XF86MonBrightnessDown allow-when-locked=true { spawn-sh "$HOME/.config/niri/scripts/backlight.sh kbd-down"; }
+    Mod+Shift+B hotkey-overlay-title="Toggle Auto Screen Brightness" { spawn-sh "$HOME/.config/niri/scripts/backlight.sh toggle-auto-screen"; }
 
     // Example media keys mapping using playerctl.
     // This will work with any MPRIS-enabled media player.

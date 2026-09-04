@@ -118,8 +118,8 @@ if [ "${NONINTERACTIVE:-0}" != "1" ] && sudo -v; then
     sudo systemctl try-restart keyd.service
     echo "keyd config installed."
 
-    if [ -f niri/etc/udev/rules.d/90-apple-backlight.rules ]; then
-        sudo install -D -m 644 niri/etc/udev/rules.d/90-apple-backlight.rules /etc/udev/rules.d/90-apple-backlight.rules
+    if [ -f udev/etc/udev/rules.d/90-apple-backlight.rules ]; then
+        sudo install -D -m 644 udev/etc/udev/rules.d/90-apple-backlight.rules /etc/udev/rules.d/90-apple-backlight.rules
         sudo udevadm control --reload-rules
         sudo udevadm trigger -s backlight -s leds || true
         echo "backlight & keyboard backlight udev rules installed."

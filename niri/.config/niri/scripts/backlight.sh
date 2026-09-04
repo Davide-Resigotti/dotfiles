@@ -15,13 +15,21 @@ case "${1:-}" in
         val=$(( ((cur + step) / step) * step ))
         [ "$val" -gt "$max" ] && val=$max
         [ "$val" -ne "$cur" ] && printf '%s\n' "$val" > "$BL/brightness"
+        "$DIR/kbd-backlight-watcher" --bias-up >/dev/null 2>&1 || true
         "$DIR/kbd-backlight-watcher" --sync
         ;;
     down)
         val=$(( ((cur - 1) / step) * step ))
         [ "$val" -lt 1 ] && val=1
         [ "$val" -ne "$cur" ] && printf '%s\n' "$val" > "$BL/brightness"
+        "$DIR/kbd-backlight-watcher" --bias-down >/dev/null 2>&1 || true
         "$DIR/kbd-backlight-watcher" --sync
+        ;;
+    toggle-auto-screen)
+        "$DIR/kbd-backlight-watcher" --toggle-auto-screen
+        ;;
+    reset-bias)
+        "$DIR/kbd-backlight-watcher" --bias-reset
         ;;
     kbd-up)
         "$DIR/kbd-backlight-watcher" --kbd-up
@@ -42,7 +50,7 @@ case "${1:-}" in
         "$DIR/kbd-backlight-watcher" --status
         ;;
     *)
-        echo "usage: $0 up|down|kbd-up|kbd-down|kbd-toggle|kbd-set <val>|sync|status" >&2
+        echo "usage: $0 up|down|kbd-up|kbd-down|kbd-toggle|kbd-set <val>|sync|status|toggle-auto-screen|reset-bias" >&2
         exit 1
         ;;
 esac
