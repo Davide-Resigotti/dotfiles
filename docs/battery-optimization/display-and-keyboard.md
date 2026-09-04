@@ -124,11 +124,12 @@ flowchart TD
 - When you plug in or unplug the charger, the screen smoothly transitions between the Battery and AC targets without harsh jumps.
 - Ramping aborts immediately if the user touches manual brightness keys.
 
-### D. Keyboard Backlight (Cap & Daylight Shutoff)
-- **Full Daylight Shutoff**: Automatically turns **OFF** (`0/255`) in bright rooms (> 55 lux).
-- **Dim Room Auto-On**: Turns **ON** in dim rooms (< 30 lux) with hysteresis (30 – 55 lux) to prevent flickering.
-- **Dual Caps**:
-  - **Battery**: Strictly capped at **50% max** (`128/255`) to conserve energy.
+### D. Continuous Flawless Keyboard Backlight
+- **Continuous Hermite Fade (`smoothstep`)**: Completely eliminates jarring binary shutoffs and flickers. Backlight illumination smoothly scales between `kbd_lux_dark` (25 lux, 100% target) and `kbd_lux_bright` (65 lux, 0% daylight shutoff) using a cubic Hermite curve with zero derivatives at the endpoints.
+- **Soft Cinematic Ramping**: When target illumination changes (or upon manual adjustment), the keyboard softly glides in ~15 ms steps over ~250–350 ms instead of snapping instantly.
+- **Shared EMA Lux Consistency**: Background monitoring and manual keypress handlers read from a shared persistent Exponential Moving Average (`ambient_lux_smoothed`), eliminating transient photodiode noise spikes.
+- **Dual Power Caps**:
+  - **Battery**: Strictly capped at **50% max** (`128/255`) to eliminate battery waste in dim rooms.
   - **AC Power**: Capped at **75% max** (`191/255`) for enhanced visibility.
 - <kbd>Mod</kbd> + <kbd>BrightnessUp</kbd> / <kbd>Down</kbd> (<kbd>F5</kbd>/<kbd>F6</kbd>) adjusts the delta by $\pm 5\%$.
 
@@ -145,8 +146,8 @@ flowchart TD
 # Ambient Light & Backlight Settings
 
 # Keyboard Ambient Light Sensor Thresholds (in lux)
-kbd_lux_dark = 30        # Below this lux, keyboard backlight turns ON
-kbd_lux_bright = 55      # Above this lux, keyboard backlight turns OFF
+kbd_lux_dark = 25        # Below this lux, keyboard backlight is at 100% of target
+kbd_lux_bright = 65      # Above this lux, keyboard backlight smoothly fades to 0% (OFF)
 
 # Keyboard Follows Screen Settings
 kbd_delta_pct = 0        # Keyboard follows screen with this delta (+/- %)
