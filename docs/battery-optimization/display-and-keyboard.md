@@ -10,7 +10,7 @@ Display and keyboard backlights represent the single largest continuous battery 
 
 | Component | Active Power Consumption | Impact of Automation |
 | :--- | :--- | :--- |
-| **Keyboard Backlight LEDs** | **~100 mW – 300 mW** | **Saves ~150 – 250 mW** in bright rooms (> 55 lux) by shutting off LEDs when keys are already visible. Capped at **50% on Battery** and **75% on AC**. |
+| **Keyboard Backlight LEDs** | **~100 mW – 300 mW** | **Saves ~150 – 250 mW** by shutting off LEDs when ambient light suffices (completely **0% above 15 lux on Battery**, and **above 35 lux on AC**). Smoothly dissolves over ~1.5–2.0s. Capped at **50% on Battery** and **75% on AC**. |
 | **Display (Battery Profile)** | **~500 mW – 1,200 mW** | Automatically scales to a power-saving **30% baseline** in room lighting (~485 lux), saving **~1.0 W to 1.5 W** compared to high-brightness defaults. |
 | **Display (AC Power Profile)** | **~1,200 mW – 3,500 mW** | Automatically scales to a vibrant **55% baseline** in room lighting (~485 lux) to maximize visual quality without battery concern. |
 | **Lid-Closed Clamshell State** | **~500 mW – 2,000 mW** | When deep sleep is inhibited for background jobs, dims panel and keyboard to **0%**, saving full display power while tasks continue executing. |
@@ -62,12 +62,15 @@ flowchart TD
         ML_BAT --> SmoothRamp
         SmoothRamp --> SetScreen["/sys/class/backlight/apple-panel-bl"]
         
-        SetScreen --> KbdCalc["Calculate Kbd = Screen + Delta<br/>Cap: max 50% (Battery) / 75% (AC)"]
-        KbdCalc --> CheckAmbient{"Ambient > 55 lux?"}
-        CheckAmbient -- "Yes (Bright)" --> KbdOff["Keyboard = 0 (OFF)"]
-        CheckAmbient -- "No (Dark/Dim)" --> KbdOn["Keyboard = clamp(Screen + Delta, 0, Cap)"]
-        KbdOff --> KBD["/sys/class/leds/kbd_backlight"]
-        KbdOn --> KBD
+        SetScreen --> KbdCalc["Calculate Kbd Target = Screen + Delta<br/>Cap: max 50% (Battery) / 75% (AC)"]
+        KbdCalc --> CheckAmbient{"Ambient Lux Thresholds<br/>Battery: 3–15 lux<br/>AC: 10–35 lux"}
+        CheckAmbient -- "Above Threshold (>15 / >35 lux)" --> KbdOff["Illumination = 0% (OFF)"]
+        CheckAmbient -- "Below Threshold (<3 / <10 lux)" --> KbdOn["Illumination = 100% of Target"]
+        CheckAmbient -- "Between Thresholds" --> KbdHermite["Cubic Hermite smoothstep fade"]
+        KbdOff --> KbdRamp["Gradual Glide Ramping<br/>(1 unit / 30ms over ~1.5–2.0s)"]
+        KbdOn --> KbdRamp
+        KbdHermite --> KbdRamp
+        KbdRamp --> KBD["/sys/class/leds/kbd_backlight"]
     end
 
     subgraph MLFeedback ["Machine Learning Adaptation"]
@@ -125,11 +128,14 @@ flowchart TD
 - Ramping aborts immediately if the user touches manual brightness keys.
 
 ### D. Continuous Flawless Keyboard Backlight
-- **Continuous Hermite Fade (`smoothstep`)**: Completely eliminates jarring binary shutoffs and flickers. Backlight illumination smoothly scales between `kbd_lux_dark` (25 lux, 100% target) and `kbd_lux_bright` (65 lux, 0% daylight shutoff) using a cubic Hermite curve with zero derivatives at the endpoints.
-- **Soft Cinematic Ramping**: When target illumination changes (or upon manual adjustment), the keyboard softly glides in ~15 ms steps over ~250–350 ms instead of snapping instantly.
+- **Dual Power Ambient Thresholds**:
+  - **Battery (Aggressive Power Saving)**: Full illumination below **3 lux** (pitch darkness), smoothly fading to **completely 0% (OFF) above 15 lux**. Since key markings are easily legible by ambient light even in dim rooms (> 15 lux), this eliminates unnecessary LED power draw.
+  - **AC Power (Optimal Experience)**: Full illumination below **10 lux**, smoothly fading to **completely 0% (OFF) above 35 lux**.
+- **Continuous Hermite Fade (`smoothstep`)**: Completely eliminates jarring binary shutoffs and flickers. Backlight illumination smoothly scales using a cubic Hermite polynomial ($S(t) = 3t^2 - 2t^3$) with zero derivatives at the endpoints, guaranteeing an elegant, seamless visual fade.
+- **Gradual Soft Ramping (~1.5 to 2.0s)**: Rather than shutting off or jumping in a single sudden command, the daemon smoothly steps brightness by **1 unit every 30ms** (taking ~1.5 to 2.0 seconds across typical brightness levels). Transitions are barely perceptible to the naked eye.
 - **Shared EMA Lux Consistency**: Background monitoring and manual keypress handlers read from a shared persistent Exponential Moving Average (`ambient_lux_smoothed`), eliminating transient photodiode noise spikes.
 - **Dual Power Caps**:
-  - **Battery**: Strictly capped at **50% max** (`128/255`) to eliminate battery waste in dim rooms.
+  - **Battery**: Strictly capped at **50% max** (`128/255`) to eliminate battery waste.
   - **AC Power**: Capped at **75% max** (`191/255`) for enhanced visibility.
 - <kbd>Mod</kbd> + <kbd>BrightnessUp</kbd> / <kbd>Down</kbd> (<kbd>F5</kbd>/<kbd>F6</kbd>) adjusts the delta by $\pm 5\%$.
 
@@ -145,14 +151,23 @@ flowchart TD
 ```ini
 # Ambient Light & Backlight Settings
 
-# Keyboard Ambient Light Sensor Thresholds (in lux)
-kbd_lux_dark = 25        # Below this lux, keyboard backlight is at 100% of target
-kbd_lux_bright = 65      # Above this lux, keyboard backlight smoothly fades to 0% (OFF)
+# Keyboard Ambient Light Sensor Thresholds on Battery (in lux)
+# Aggressive power saving: turns completely OFF in dim rooms where keys are visible
+kbd_lux_dark_battery = 3.0       # Below 3 lux (pitch darkness), keyboard backlight is at 100% of target
+kbd_lux_bright_battery = 15.0    # Above 15 lux, keyboard backlight smoothly turns completely OFF (0%)
+
+# Keyboard Ambient Light Sensor Thresholds on AC Power (in lux)
+kbd_lux_dark_ac = 10.0           # Below 10 lux, keyboard backlight is at 100% of target
+kbd_lux_bright_ac = 35.0         # Above 35 lux, keyboard backlight smoothly turns completely OFF (0%)
+
+# Keyboard Gradual Fading (fade speed - replaces single-command shutoff)
+kbd_ramp_step = 1                # Step size for keyboard fading (1 unit per step)
+kbd_ramp_interval_ms = 30        # Milliseconds per step (30ms = ~1.5-2.0s gradual smooth fade)
 
 # Keyboard Follows Screen Settings
-kbd_delta_pct = 0        # Keyboard follows screen with this delta (+/- %)
-kbd_max_pct_battery = 50 # Strict maximum keyboard brightness cap on Battery (50% = 128/255)
-kbd_max_pct_ac = 75      # Maximum keyboard brightness cap on AC Power (75% = 191/255)
+kbd_delta_pct = 0                # Keyboard follows screen with this delta (+/- %)
+kbd_max_pct_battery = 50         # Strict maximum keyboard brightness cap on Battery (50% = 128/255)
+kbd_max_pct_ac = 75              # Maximum keyboard brightness cap on AC Power (75% = 191/255)
 
 # Screen Auto-Brightness Settings
 auto_screen = true

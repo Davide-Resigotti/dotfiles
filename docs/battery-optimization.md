@@ -55,7 +55,7 @@ The system continuously balances peak performance on **AC power** with aggressiv
 - **Dual-Profile Machine Learning**: Pure Python Kernel Anchor Spline learns separate curves for AC Power (55% baseline at 485 lux, max visual experience) and Battery (30% baseline at 485 lux, power saver).
 - **Training Window & Waybar Indicator**: Actively learns for 7 days with a dedicated `[ 󰃠 train: 7d ]` indicator in Waybar, then automatically locks in your personalized curves.
 - **Smooth Gradual Ramping**: Transitions smoothly by **0.5% increments** every 50ms across light changes and AC plug/unplug events.
-- **Continuous Keyboard Backlight**: Uses cubic Hermite smoothstep fade between 25 and 65 lux with soft ~15ms ramping, eliminating abrupt on/off clicking and flickering. Capped at **50% max** on battery and **75% max** on AC.
+- **Continuous Keyboard Backlight**: Uses cubic Hermite smoothstep fade with distinct thresholds for Battery (> 15 lux completely OFF) and AC Power (> 35 lux completely OFF). Dissolves gradually over ~1.5–2.0 seconds (1 unit / 30ms) instead of sudden single commands. Capped at **50% max** on battery and **75% max** on AC.
 - **Lid Clamshell**: Dims panel and keyboard to 0% when closed while deep sleep is inhibited for active tasks.
 
 ### C. System-Level & Hardware Power Tuning

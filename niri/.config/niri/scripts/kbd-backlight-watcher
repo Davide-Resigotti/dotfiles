@@ -6,8 +6,9 @@ Automatically controls keyboard backlight and screen brightness using ambient ro
   - Battery: Power-saving curve (~30% baseline at 485 lux, max 50% keyboard cap).
   - AC Power: High-experience curve (~55% baseline at 485 lux, max 75% keyboard cap).
 - Continuous Flawless Keyboard Backlight:
-  - Smooth hermite fade (smoothstep) across ambient room lux (25–65 lux).
-  - Soft, gradual ramping (~15ms steps) eliminating jarring binary cutoffs and flicker.
+  - Battery: Turns completely OFF in dim rooms (> 15 lux) where keys are visible, saving power.
+  - AC Power: Turns completely OFF in moderate rooms (> 35 lux).
+  - Gradual Soft Fade: Smoothly dissolves over ~1.5 to 2.0 seconds (1 unit / 30ms) instead of a single command.
   - Follows screen brightness with configurable delta and profile power caps.
 - Machine Learning with Training Window:
   - Learns user manual F1/F2 preferences separately for AC and Battery.
@@ -51,8 +52,14 @@ SAVED_BRIGHTNESS_FILE = os.path.join(
 
 # Default settings
 DEFAULT_CONFIG = {
-    "kbd_lux_dark": 25.0,
-    "kbd_lux_bright": 65.0,
+    "kbd_lux_dark_battery": 3.0,
+    "kbd_lux_bright_battery": 15.0,
+    "kbd_lux_dark_ac": 10.0,
+    "kbd_lux_bright_ac": 35.0,
+    "kbd_lux_dark": 3.0,
+    "kbd_lux_bright": 15.0,
+    "kbd_ramp_step": 1,
+    "kbd_ramp_interval_ms": 30,
     "kbd_delta_pct": 0.0,
     "kbd_max_pct_battery": 50.0,
     "kbd_max_pct_ac": 75.0,
@@ -112,6 +119,10 @@ def load_config():
                         k = k.strip().lower()
                         v = v.split("#")[0].strip()
                         if k in (
+                            "kbd_lux_dark_battery",
+                            "kbd_lux_bright_battery",
+                            "kbd_lux_dark_ac",
+                            "kbd_lux_bright_ac",
                             "kbd_lux_dark",
                             "kbd_lux_bright",
                             "kbd_delta_pct",
@@ -125,6 +136,8 @@ def load_config():
                         ):
                             cfg[k] = float(v)
                         elif k in (
+                            "kbd_ramp_step",
+                            "kbd_ramp_interval_ms",
                             "screen_min_pct",
                             "screen_max_pct",
                             "ramp_interval_ms",
@@ -305,22 +318,26 @@ def set_kbd_brightness(val):
         return False
 
 
-def ramp_kbd_brightness(start_val, target_val, step=2, interval=0.015):
+def ramp_kbd_brightness(start_val, target_val, cfg=None):
     """
-    Smoothly fades keyboard backlight between start_val and target_val (~200-350ms).
-    Prevents abrupt on/off clicking or jarring visual transitions.
+    Smoothly fades keyboard backlight between start_val and target_val over ~1.5 to 2.0 seconds.
+    Step size and interval ensure gradual, visually pleasing transitions (NOT a single command).
     """
     if start_val is None or target_val is None:
         return
     if start_val == target_val:
         return
-    if abs(target_val - start_val) <= 2:
+
+    step = int(cfg.get("kbd_ramp_step", 1)) if cfg else 1
+    interval = (int(cfg.get("kbd_ramp_interval_ms", 30)) / 1000.0) if cfg else 0.030
+
+    if abs(target_val - start_val) <= step:
         set_kbd_brightness(target_val)
         return
 
     direction = 1 if target_val > start_val else -1
     cur = start_val
-    while abs(target_val - cur) > step:
+    while abs(target_val - cur) >= step:
         cur += direction * step
         set_kbd_brightness(cur)
         time.sleep(interval)
@@ -339,7 +356,8 @@ def compute_kbd_target(lux, disp_cur, disp_max, cfg, is_ac_power, lid_angle):
     """
     Computes smooth, continuous keyboard backlight target (0-255).
     - Clamshell: 0 when lid closed.
-    - Ambient: smoothly fades from 100% at dark (<=25 lux) to 0% at bright (>=65 lux).
+    - Battery: Turns completely OFF in dim rooms (> 15 lux) where keys are visible.
+    - AC Power: Turns completely OFF in moderate rooms (> 35 lux).
     - Power Cap: respects max 50% on Battery and 75% on AC.
     """
     if lid_angle is not None and lid_angle <= 0:
@@ -348,14 +366,16 @@ def compute_kbd_target(lux, disp_cur, disp_max, cfg, is_ac_power, lid_angle):
         return 0
 
     kbd_max = 255
-    dark = float(cfg.get("kbd_lux_dark", 25.0))
-    bright = float(cfg.get("kbd_lux_bright", 65.0))
+    if is_ac_power:
+        dark = float(cfg.get("kbd_lux_dark_ac", 10.0))
+        bright = float(cfg.get("kbd_lux_bright_ac", 35.0))
+        cap = float(cfg.get("kbd_max_pct_ac", 75.0))
+    else:
+        dark = float(cfg.get("kbd_lux_dark_battery", 3.0))
+        bright = float(cfg.get("kbd_lux_bright_battery", 15.0))
+        cap = float(cfg.get("kbd_max_pct_battery", 50.0))
+
     delta = get_kbd_delta(cfg)
-    cap = (
-        float(cfg.get("kbd_max_pct_ac", 75.0))
-        if is_ac_power
-        else float(cfg.get("kbd_max_pct_battery", 50.0))
-    )
 
     if lux is None:
         fade = 1.0 if (disp_cur * 2 < disp_max) else 0.0
@@ -444,7 +464,7 @@ def record_manual_adjustment(val):
     target_kbd = compute_kbd_target(smoothed_lux, val, disp_max, cfg, is_on_ac(), lid_angle)
 
     if kbd_cur != target_kbd:
-        ramp_kbd_brightness(kbd_cur, target_kbd)
+        ramp_kbd_brightness(kbd_cur, target_kbd, cfg)
 
 
 class AmbientBacklightManager:
@@ -657,8 +677,10 @@ class AmbientBacklightManager:
         )
 
         if kbd_cur != target_kbd:
-            if ramp_screen and self.cfg.get("smooth_ramp", True) and abs(target_kbd - kbd_cur) > 2:
-                ramp_kbd_brightness(kbd_cur, target_kbd)
+            if lid_angle is not None and lid_angle <= 0:
+                set_kbd_brightness(0)
+            elif abs(target_kbd - kbd_cur) > 1 and self.cfg.get("smooth_ramp", True):
+                ramp_kbd_brightness(kbd_cur, target_kbd, self.cfg)
             else:
                 set_kbd_brightness(target_kbd)
 
@@ -696,8 +718,13 @@ def print_status():
     predicted_pct = model.predict(smoothed_lux, profile=profile) if smoothed_lux is not None else None
     days_left, hours_left, is_training = model.get_training_time_left()
 
-    dark = float(cfg.get("kbd_lux_dark", 25.0))
-    bright = float(cfg.get("kbd_lux_bright", 65.0))
+    if current_ac:
+        dark = float(cfg.get("kbd_lux_dark_ac", 10.0))
+        bright = float(cfg.get("kbd_lux_bright_ac", 35.0))
+    else:
+        dark = float(cfg.get("kbd_lux_dark_battery", 3.0))
+        bright = float(cfg.get("kbd_lux_bright_battery", 15.0))
+
     fade = 1.0 - smoothstep(dark, bright, float(smoothed_lux)) if smoothed_lux is not None else 1.0
     target_kbd = compute_kbd_target(smoothed_lux, disp_cur, disp_max, cfg, current_ac, lid_angle)
 
@@ -714,7 +741,8 @@ def print_status():
     )
     print(f"Display:              {disp_cur}/{disp_max} ({disp_pct})")
     print(f"Keyboard:             {kbd_cur}/{kbd_max} ({kbd_pct}) [Target: {target_kbd}/{kbd_max}]")
-    print(f"Keyboard Ambient Fade:{fade * 100:5.1f}% illumination (smooth falloff between {dark:.0f}-{bright:.0f} lux)")
+    print(f"Keyboard Ambient Fade:{fade * 100:5.1f}% illumination (smooth falloff between {dark:.0f}-{bright:.0f} lux on {'AC' if current_ac else 'Battery'})")
+    print(f"Keyboard Fade Speed:  {cfg.get('kbd_ramp_step', 1)} unit / {cfg.get('kbd_ramp_interval_ms', 30)}ms (~1.5-2.0s gradual glide)")
     print(f"Keyboard Cap/Delta:   max {kbd_cap:.0f}% (delta: {kbd_delta:+.1f}%)")
     print(f"Auto-Screen:          {'Enabled' if cfg['auto_screen'] else 'Disabled'}")
     if cfg["auto_screen"] and predicted_pct is not None:
@@ -812,7 +840,7 @@ def run_daemon():
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    # Initial sync on daemon launch: instant (no ramp) to hit target immediately
+    # Initial sync on daemon launch
     mgr.sync(ramp_screen=False)
 
     while mgr.running:
@@ -923,11 +951,11 @@ def main():
         cur, max_b = get_kbd_brightness()
         max_b = max_b or 255
         if cur and cur > 0:
-            set_kbd_brightness(0)
-            print("Keyboard backlight toggled OFF")
+            ramp_kbd_brightness(cur, 0, load_config())
+            print("Keyboard backlight smoothly faded OFF")
         else:
             sync_all()
-            print("Keyboard backlight toggled ON")
+            print("Keyboard backlight smoothly faded ON")
     elif args.bias_up or args.bias_down or args.bias_reset:
         sync_all()
     else:
