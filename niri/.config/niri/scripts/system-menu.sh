@@ -112,7 +112,14 @@ show_command_result() {
             printf '<span foreground="%s">────────────────────────────────────────────────────────────────────────────</span>\n' "$COLOR_DESC"
 
             if [[ -z "$raw_output" ]]; then
-                printf '<span foreground="%s"><i>(Command completed with empty output)</i></span>\n' "$COLOR_DESC"
+                printf '<span weight="bold" foreground="%s">✓ Command executed successfully.</span>\n' "$COLOR_STAR"
+                if [[ "$raw_cmd" == *"niri msg output"* ]]; then
+                    local cur_m
+                    cur_m="$(niri msg outputs 2>/dev/null | grep -E "Current mode|Variable refresh" || true)"
+                    if [[ -n "$cur_m" ]]; then
+                        printf '<span foreground="%s">%s</span>\n' "$COLOR_DESC" "$(escape_pango "$cur_m")"
+                    fi
+                fi
             else
                 while IFS= read -r line; do
                     local escaped
@@ -240,6 +247,14 @@ generate_details_menu() {
     # Displays, audio & theme
     printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">niri msg outputs</span>\n' \
         "$COLOR_CMD" "niri outputs" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">niri msg output eDP-1 mode 3024x1890@120.000</span>\n' \
+        "$COLOR_CMD" "display 120hz (pro)" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">niri msg output eDP-1 mode 3024x1890@60.000</span>\n' \
+        "$COLOR_CMD" "display 60hz (eco)" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">niri msg action power-off-monitors</span>\n' \
+        "$COLOR_CMD" "display dpms off" "$COLOR_DESC"
+    printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">pgrep -a swayidle</span>\n' \
+        "$COLOR_CMD" "idle blanking status" "$COLOR_DESC"
     printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">niri msg workspaces</span>\n' \
         "$COLOR_CMD" "niri workspaces" "$COLOR_DESC"
     printf '<span weight="bold" foreground="%s">%-22s</span> │ <span foreground="%s">niri msg windows</span>\n' \
