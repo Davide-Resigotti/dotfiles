@@ -4,5 +4,8 @@ confirm-close-surface = false
 # Command
 command = tmux
 
+# Scroll sensitivity (defaults: precision:1,discrete:3)
+mouse-scroll-multiplier = precision:0.2,discrete:1
+
 # Dynamic accent & theme
 config-file = ?accent.conf

@@ -1,4 +1,11 @@
+# ~/.profile: executed by the command interpreter for login shells.
 
+if [ -n "$BASH_VERSION" ]; then
+    if [ -f "$HOME/.bashrc" ]; then
+        . "$HOME/.bashrc"
+    fi
+fi
 
-# Added by Antigravity CLI installer
-export PATH="/home/davideresigotti/.local/bin:$PATH"
+if ! [[ "$PATH" =~ "$HOME/.local/bin" ]]; then
+    export PATH="$HOME/.local/bin:$PATH"
+fi

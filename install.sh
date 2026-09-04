@@ -40,7 +40,7 @@ for l in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.gitconfi
 done
 
 # Packages -> stow symlinks them into $HOME (e.g. ~/.config/niri -> repo).
-stow -v --restow niri waybar mako fuzzel wofi ghostty fontconfig xsettingsd gtk-3.0 gtk-4.0 autostart shell darkman xdg-desktop-portal theme home-assistant waypaper yazi tmux nvim
+stow -v --restow niri waybar mako fuzzel wofi ghostty fontconfig xsettingsd gtk-2.0 gtk-3.0 gtk-4.0 autostart shell darkman xdg-desktop-portal theme home-assistant waypaper yazi tmux nvim npm opencode
 
 # System Shortcuts & Details menu
 ln -sf "$HOME/.config/niri/scripts/system-menu.sh" "$HOME/.local/bin/system-menu"
@@ -148,6 +148,19 @@ if [ -f "agy/mcp_config.json" ]; then
     elif ! grep -q '"homeassistant"' "$AGY_MCP" 2>/dev/null; then
         echo "agy MCP config exists without a homeassistant entry — add it manually (see agy/mcp_config.json)." >&2
     fi
+fi
+
+# Antigravity (agy) system-organizer skill
+if [ -d "agy/skills/system-organizer" ]; then
+    mkdir -p "$HOME/.gemini/config/skills"
+    ln -sfn "$PWD/agy/skills/system-organizer" "$HOME/.gemini/config/skills/system-organizer"
+    echo "Linked Antigravity system-organizer skill to ~/.gemini/config/skills/system-organizer."
+fi
+
+# System organization & XDG health audit
+if [ -f "agy/skills/system-organizer/scripts/audit-system.sh" ]; then
+    echo "Verifying system organization health..."
+    bash "agy/skills/system-organizer/scripts/audit-system.sh" || true
 fi
 
 cat <<'EOF'

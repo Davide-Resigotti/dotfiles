@@ -11,6 +11,7 @@ Welcome to the central documentation hub for this dotfiles environment. All arch
 3. [Neovim Configuration & Developer Environment](#3-neovim-configuration--developer-environment)
 4. [Desktop & Window Management (Niri)](#4-desktop--window-management-niri)
 5. [Dotfiles & Machine Setup](#5-dotfiles--machine-setup)
+6. [System Organization & Antigravity Automation](#6-system-organization--antigravity-automation)
 
 ---
 
@@ -55,3 +56,12 @@ Modular, fast Neovim environment built on lazy.nvim with full language server pr
 
 - [**Main Dotfiles README**](../README.md): GNU Stow package map, quick restore instructions, and keybinding cheat sheet.
 - **Installer Script**: [`install.sh`](../install.sh) for one-step bootstrapping on a fresh installation.
+
+---
+
+## 6. System Organization & Antigravity Automation
+
+- [**System Organization Architecture**](system-organization/README.md): Comprehensive guide on XDG Base Directory standards, GNU Stow package conventions, collision prevention, and the Antigravity `system-organizer` AI skill.
+- **Antigravity AI Skill**: Located in [`agy/skills/system-organizer/`](../agy/skills/system-organizer/SKILL.md) with automated system health auditing, package adoption, and pre-commit hygiene scripts.
+- **Workspace Rule**: Enforced by [`shell/AGENTS.md`](../shell/AGENTS.md) for strict XDG compliance on every agent prompt.
+

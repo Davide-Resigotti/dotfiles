@@ -314,10 +314,12 @@ window-rule {
     open-floating true
 }
 
-// nvim-wl-anywhere: open as floating popup
+// nvim-wl-anywhere: open as floating popup, always centered
 window-rule {
     match app-id=r#"^nvim-wl-anywhere$"#
     open-floating true
+    default-column-width { proportion 0.5; }
+    default-window-height { proportion 0.5; }
 }
 
 // System details popup terminal

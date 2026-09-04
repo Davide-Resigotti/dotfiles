@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Yard Camera Presence Popup Controller
+# Usage: yard-popup-camera [open|close|status]
+
+SOCKET="/tmp/yard-popup-mpv.sock"
+APP_ID="camera-yard-popup"
+CAM_YARD="rtsp://192.168.1.206:554/stream1"
+INPUT_CONF="${HOME}/.config/niri/scripts/yard-popup-input.conf"
+
+is_running() {
+    pgrep -f "wayland-app-id=${APP_ID}" >/dev/null 2>&1
+}
+
+case "${1:-status}" in
+    open)
+        if is_running; then
+            exit 0
+        fi
+        rm -f "$SOCKET"
+        # Launch mpv with audio enabled, top-right popup sizing, and click-to-expand input binding
+        mpv \
+            --profile=low-latency \
+            --rtsp-transport=tcp \
+            --demuxer-lavf-analyzeduration=0.5 \
+            --demuxer-lavf-probesize=32768 \
+            --video-sync=desync \
+            --hwdec=no \
+            --title="Yard Camera (Presence)" \
+            --wayland-app-id="$APP_ID" \
+            --autofit=28%x28% \
+            --input-ipc-server="$SOCKET" \
+            --input-conf="$INPUT_CONF" \
+            "$CAM_YARD" >/dev/null 2>&1 &
+        ;;
+    close)
+        if [ -S "$SOCKET" ]; then
+            echo '{ "command": ["quit"] }' | socat - "$SOCKET" >/dev/null 2>&1 || true
+            sleep 0.2
+        fi
+        if is_running; then
+            pkill -f "wayland-app-id=${APP_ID}" >/dev/null 2>&1 || true
+        fi
+        rm -f "$SOCKET"
+        ;;
+    status)
+        if is_running; then
+            echo "running"
+            exit 0
+        else
+            echo "stopped"
+            exit 1
+        fi
+        ;;
+    *)
+        echo "Usage: $(basename "$0") [open|close|status]" >&2
+        exit 1
+        ;;
+esac

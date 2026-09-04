@@ -20,7 +20,10 @@ targets root-owned `/etc/keyd`, so `install.sh` needs sudo for it.)
 | `fuzzel`     | `~/.config/fuzzel`  | launcher used by the clipboard picker and application finder |
 | `wofi`       | `~/.config/wofi`    | launcher used by the System Shortcuts & Details menu (`Mod+Shift+/`) |
 | `ghostty`    | `~/.config/ghostty` | terminal config (`config`) |
+| `gtk-2.0`    | `~/.config/gtk-2.0` | GTK 2 settings (`gtkrc`) |
 | `gtk-3.0`, `gtk-4.0` | `~/.config/gtk-{3,4}.0` | GTK theming + window-button assets (generated `*dank-colors.css` excluded) |
+| `npm`        | `~/.config/npm`     | XDG-compliant npm configuration (`npmrc`) |
+| `opencode`   | `~/.config/systemd/user` | OpenCode web server systemd service |
 | `xsettingsd` | `~/.config/xsettingsd` | GTK settings bridge |
 | `fontconfig` | `~/.config/fontconfig` | font aliases (Nerd Font -> Cascadia Code NF) |
 | `darkman`    | `~/.config/darkman`, `~/.local/share/darkman` | darkman config (fixed Milan coords) + transition hook |
@@ -28,7 +31,8 @@ targets root-owned `/etc/keyd`, so `install.sh` needs sudo for it.)
 | `theme`     | `~/.config/theme`, `~/.local/bin/set-accent`, `~/.local/bin/toggle-theme`, `~/.local/share/applications` | Dynamic primary & system color accent dispatcher, Fuzzel & Wofi theme toggle, RTSP camera launchers, and app launcher shortcuts |
 | `home-assistant` | `~/.config/home-assistant/scripts` | `ha-toggle <entity>` — toggles a HA entity via the local REST API (token read from `~/.config/home-assistant/token`) |
 | `autostart`  | `~/.config/autostart` | XWayland video bridge, daemon autostart overrides (`geoclue`, `kunifiedpush`, `sealertauto`) |
-| `shell`      | `~/.bashrc`, `~/.bash_profile`, `~/.profile`, `~/.gitconfig`, `~/.local/bin/apply-hardware-power-tuning` | exports system color and accent variables, hardware power tuning installer |
+| `shell`      | `~/.bashrc`, `~/.bash_profile`, `~/.profile`, `~/.gitconfig`, `~/AGENTS.md`, `~/.local/bin/apply-hardware-power-tuning` | exports XDG base dirs, system color/accent variables, always-on agent organizing rules, hardware power tuning installer |
+| `agy`        | `~/.gemini/config/skills/system-organizer` | Antigravity AI system-organizer skill, health auditing, and architecture manuals |
 | `wallpapers` | copied to `~/Pictures/Wallpapers` | Wallpapers grouped by color folder (`Orange`, `Blue`, `Purple`) |
 | `waypaper`   | `~/.config/waypaper`, `~/.local/bin/mpvpaper` | Wallpaper manager config, smart swaybg/mpvpaper dispatcher, cycle scripts, and dynamic power watcher daemon |
 | `firefox`    | `~/.config/mozilla/firefox/*/chrome` | Dynamic vertical tabs theme stylesheet (`userChrome.css`) & Pywalfox integration |
@@ -92,6 +96,29 @@ agy mcp enable homeassistant   # enable it (agy mcp list to verify)
 
 The live file `~/.gemini/config/mcp_config.json` is **not** a symlink and is
 owned by `agy`, so enabling/updating it never rewrites the repo template.
+
+### Antigravity AI System Organizer Skill (`system-organizer`)
+
+This repository integrates an AI pair-programming skill and always-on rule designed to keep the system organized, XDG-compliant, and 100% restorable.
+- **Skill Location**: [`agy/skills/system-organizer/SKILL.md`](agy/skills/system-organizer/SKILL.md) (symlinked to `~/.gemini/config/skills/system-organizer`).
+- **Always-on Rule**: [`shell/AGENTS.md`](shell/AGENTS.md) (stowed to `~/AGENTS.md`).
+- **Comprehensive Guide**: [`docs/system-organization/README.md`](docs/system-organization/README.md).
+
+#### Maintenance & Diagnostic Utilities
+
+```sh
+# Audit $HOME for XDG violations, broken symlinks, and Stow collisions:
+bash agy/skills/system-organizer/scripts/audit-system.sh
+
+# Safely adopt an unmanaged file/directory into a Stow package:
+bash agy/skills/system-organizer/scripts/adopt-package.sh <package_name> <path>
+
+# Verify and restow all packages:
+bash agy/skills/system-organizer/scripts/restow-all.sh
+
+# Pre-commit hygiene and secret leakage check:
+bash agy/skills/system-organizer/scripts/sync-git.sh
+```
 
 ## Dynamic Color & Accent System
 
