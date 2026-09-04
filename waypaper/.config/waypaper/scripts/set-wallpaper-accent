@@ -30,32 +30,46 @@ DIR="$(dirname "$WALLPAPER")"
 
 # Check if machine is on AC power (ignore charging state for 75% limiters)
 is_on_ac_power() {
+    local has_battery=0
     for ps in /sys/class/power_supply/*; do
-        if [[ -f "$ps/type" && -f "$ps/online" ]]; then
+        if [[ -f "$ps/type" ]]; then
             local type
             type="$(cat "$ps/type" 2>/dev/null || true)"
-            if [[ "$type" == "Mains" || "$type" == "USB" || "$type" == "USB_PD" || "$type" == "AC" ]]; then
-                if [[ "$(cat "$ps/online" 2>/dev/null || true)" == "1" ]]; then
+            if [[ "$type" == "Battery" ]]; then
+                has_battery=1
+            elif [[ "$type" == "Mains" || "$type" == "USB" || "$type" == "USB_PD" || "$type" == "AC" ]]; then
+                if [[ -f "$ps/online" && "$(cat "$ps/online" 2>/dev/null || true)" == "1" ]]; then
                     return 0
                 fi
             fi
         fi
     done
+    if [[ "$has_battery" -eq 0 ]]; then
+        return 0
+    fi
     return 1
 }
 
 # If on battery and chosen wallpaper is a video, switch mpvpaper to static frame
-if ! is_on_ac_power && [[ ! "$WALLPAPER" =~ \.(jpg|jpeg|png|webp|avif)$ ]] && [[ -S "/tmp/mpv-socket-All" ]]; then
-    CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/wallpaper-frames"
-    mkdir -p "$CACHE_DIR"
-    BASE="$(basename "$WALLPAPER")"
-    FRAME="$CACHE_DIR/${BASE%.*}.jpg"
-    if [[ ! -f "$FRAME" ]] && command -v ffmpeg &>/dev/null; then
-        ffmpeg -y -ss 00:00:01 -i "$WALLPAPER" -vframes 1 -q:v 2 "$FRAME" 2>/dev/null || true
-    fi
-    if [[ -f "$FRAME" ]]; then
-        echo "loadfile \"$FRAME\"" | socat - /tmp/mpv-socket-All 2>/dev/null || true
-        echo "set pause yes" | socat - /tmp/mpv-socket-All 2>/dev/null || true
+if ! is_on_ac_power && [[ ! "$WALLPAPER" =~ \.(jpg|jpeg|png|webp|avif)$ ]]; then
+    # If mpvpaper was just launched asynchronously, wait briefly for the socket to appear
+    for _ in {1..30}; do
+        [[ -S "/tmp/mpv-socket-All" ]] && break
+        sleep 0.1
+    done
+
+    if [[ -S "/tmp/mpv-socket-All" ]]; then
+        CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/wallpaper-frames"
+        mkdir -p "$CACHE_DIR"
+        BASE="$(basename "$WALLPAPER")"
+        FRAME="$CACHE_DIR/${BASE%.*}.jpg"
+        if [[ ! -f "$FRAME" ]] && command -v ffmpeg &>/dev/null; then
+            ffmpeg -y -ss 00:00:01 -i "$WALLPAPER" -vframes 1 -q:v 2 "$FRAME" 2>/dev/null || true
+        fi
+        if [[ -f "$FRAME" ]]; then
+            sleep 0.05
+            printf "loadfile \"%s\"\nset pause yes\n" "$FRAME" | socat - /tmp/mpv-socket-All 2>/dev/null || true
+        fi
     fi
 fi
 if [[ -f "$DIR/.color" ]]; then

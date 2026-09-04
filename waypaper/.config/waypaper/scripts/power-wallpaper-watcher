@@ -17,6 +17,8 @@ import time
 WP_CONFIG = os.path.expanduser("~/.config/waypaper/config.ini")
 CACHE_DIR = os.path.expanduser("~/.cache/wallpaper-frames")
 MPV_SOCKET = "/tmp/mpv-socket-All"
+VIDEO_EXTS = (".mp4", ".mkv", ".webm", ".mov", ".avi")
+_FRAME_CACHE = {}
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 
@@ -25,17 +27,24 @@ def is_on_ac():
     Checks hardware power line online status.
     Does NOT check charging status so 75% battery limits work properly.
     """
-    for p in glob.glob("/sys/class/power_supply/*"):
+    supplies = glob.glob("/sys/class/power_supply/*")
+    if not supplies:
+        return True
+
+    has_battery = False
+    for p in supplies:
         try:
             with open(os.path.join(p, "type")) as ft:
                 ptype = ft.read().strip()
-            if ptype in ("Mains", "USB", "USB_PD", "AC"):
+            if ptype == "Battery":
+                has_battery = True
+            elif ptype in ("Mains", "USB", "USB_PD", "AC"):
                 with open(os.path.join(p, "online")) as fo:
                     if fo.read().strip() == "1":
                         return True
         except Exception:
             pass
-    return False
+    return not has_battery
 
 def get_current_wallpaper():
     if not os.path.isfile(WP_CONFIG):
@@ -53,7 +62,25 @@ def get_current_wallpaper():
         pass
     return None
 
+def is_video_file(path):
+    if not path:
+        return False
+    ext = os.path.splitext(path)[1].lower()
+    return ext in VIDEO_EXTS
+
+def find_video_for_frame(frame_path):
+    stem = os.path.splitext(os.path.basename(frame_path))[0]
+    for ext in VIDEO_EXTS:
+        pattern = os.path.join(os.path.expanduser("~/Pictures/Wallpapers"), "**", f"{stem}{ext}")
+        matches = glob.glob(pattern, recursive=True)
+        if matches:
+            return matches[0]
+    return None
+
 def get_static_frame(video_path):
+    if video_path in _FRAME_CACHE and os.path.isfile(_FRAME_CACHE[video_path]):
+        return _FRAME_CACHE[video_path]
+
     base = os.path.basename(video_path)
     stem, _ = os.path.splitext(base)
     frame_path = os.path.join(CACHE_DIR, f"{stem}.jpg")
@@ -68,49 +95,103 @@ def get_static_frame(video_path):
         except Exception:
             pass
     if os.path.isfile(frame_path):
+        _FRAME_CACHE[video_path] = frame_path
         return frame_path
     return video_path
 
-def send_mpv(command):
+def send_mpv_raw(command):
+    """Send command to mpv socket. Returns (success, response_dict)."""
     if not os.path.exists(MPV_SOCKET):
-        return
+        return False, None
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-            s.settimeout(1.0)
+            s.settimeout(0.5)
             s.connect(MPV_SOCKET)
             payload = json.dumps({"command": command}) + "\n"
             s.sendall(payload.encode())
+            raw = s.recv(4096).decode()
+            if not raw:
+                return True, None
+            data = json.loads(raw.splitlines()[0])
+            return True, data
+    except (ConnectionRefusedError, FileNotFoundError):
+        try:
+            os.remove(MPV_SOCKET)
+        except OSError:
+            pass
+        return False, None
     except Exception:
-        pass
+        return False, None
+
+def send_mpv(command):
+    ok, _ = send_mpv_raw(command)
+    return ok
+
+def get_mpv_property(name):
+    ok, res = send_mpv_raw(["get_property", name])
+    if ok and isinstance(res, dict) and res.get("error") == "success":
+        return res.get("data")
+    return None
 
 def sync_power(is_ac):
-    wp = get_current_wallpaper()
-    if not wp or not os.path.isfile(wp):
-        return
+    """
+    Ensure mpv is in the correct state for the given power mode:
+    - On AC: live video wallpaper playing, unpaused.
+    - On Battery: static 4K frame loaded, paused.
+    Returns True if mpv is reachable and properly synchronized, False otherwise.
+    """
+    if not os.path.exists(MPV_SOCKET):
+        return False
 
-    ext = os.path.splitext(wp)[1].lower()
-    is_video = ext in (".mp4", ".mkv", ".webm", ".mov", ".avi")
-    if not is_video:
-        return
+    mpv_path = get_mpv_property("path")
+    mpv_paused = get_mpv_property("pause")
+    if mpv_path is None:
+        return False
+
+    wp = get_current_wallpaper()
+
+    # Determine original video source
+    video_source = None
+    if wp and is_video_file(wp):
+        video_source = wp
+    elif is_video_file(mpv_path):
+        video_source = mpv_path
+    elif mpv_path and CACHE_DIR in mpv_path:
+        video_source = find_video_for_frame(mpv_path)
+
+    # If this is not a video wallpaper (i.e. static image wallpaper)
+    if not video_source:
+        if not is_ac and not mpv_paused:
+            send_mpv(["set_property", "pause", True])
+        elif is_ac and mpv_paused:
+            send_mpv(["set_property", "pause", False])
+        return True
 
     if is_ac:
-        print(f"[{time.strftime('%T')}] Power connected (AC). Playing live video: {wp}", flush=True)
-        send_mpv(["loadfile", wp])
-        send_mpv(["set_property", "pause", False])
+        # On AC: live video playing unpaused
+        need_load = (mpv_path != video_source)
+        need_unpause = (mpv_paused is not False)
+        if need_load or need_unpause:
+            print(f"[{time.strftime('%T')}] Power connected (AC). Playing live video: {video_source}", flush=True)
+            if need_load:
+                send_mpv(["loadfile", video_source])
+                time.sleep(0.05)
+            send_mpv(["set_property", "pause", False])
+        return True
     else:
-        frame = get_static_frame(wp)
-        print(f"[{time.strftime('%T')}] Power disconnected (Battery). Showing static image: {frame}", flush=True)
-        send_mpv(["loadfile", frame])
-        send_mpv(["set_property", "pause", True])
+        # On Battery: static frame loaded and paused
+        frame = get_static_frame(video_source)
+        need_load = (mpv_path != frame)
+        need_pause = (mpv_paused is not True)
+        if need_load or need_pause:
+            print(f"[{time.strftime('%T')}] Power disconnected (Battery). Showing static image: {frame}", flush=True)
+            if need_load:
+                send_mpv(["loadfile", frame])
+                time.sleep(0.05)
+            send_mpv(["set_property", "pause", True])
+        return True
 
 def main():
-    last_state = None
-    
-    # Initial state sync
-    current_ac = is_on_ac()
-    last_state = current_ac
-    sync_power(current_ac)
-
     # Start udev monitor for power supply changes
     try:
         udev_proc = subprocess.Popen(
@@ -124,8 +205,11 @@ def main():
 
     while True:
         try:
+            current_ac = is_on_ac()
+            sync_power(current_ac)
+
+            # Wait for next udev power event or 1-second watchdog tick
             if udev_proc and udev_proc.stdout:
-                # Wait for udev event or 1-second timeout
                 r, _, _ = select.select([udev_proc.stdout], [], [], 1.0)
                 if r:
                     udev_proc.stdout.readline()
@@ -133,10 +217,6 @@ def main():
             else:
                 time.sleep(1.0)
 
-            current_ac = is_on_ac()
-            if current_ac != last_state:
-                last_state = current_ac
-                sync_power(current_ac)
         except Exception as e:
             time.sleep(1.0)
 
