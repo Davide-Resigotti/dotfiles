@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Hardware Power Tuning Script for Apple Silicon Fedora Asahi
+# Run with sudo: sudo apply-hardware-power-tuning
+set -euo pipefail
+
+if [[ $EUID -ne 0 ]]; then
+    echo "This script must be run as root: sudo $0" >&2
+    exit 1
+fi
+
+echo "==> Configuring PCIe Runtime Power Management for SD Card Reader..."
+cat << 'UDEV' > /etc/udev/rules.d/99-pci-pm.rules
+# Enable runtime power management for Genesys SD Card reader (D3hot/D3cold when idle)
+ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x17a0", ATTR{device}=="0x9755", ATTR{power/control}="auto"
+UDEV
+
+echo "==> Configuring PCIe ASPM to powersupersave..."
+cat << 'TMPFILE' > /etc/tmpfiles.d/aspm.conf
+w /sys/module/pcie_aspm/parameters/policy - - - - powersupersave
+TMPFILE
+
+echo "==> Disabling unneeded ModemManager (no WWAN cellular card on Apple Silicon)..."
+systemctl disable --now ModemManager.service 2>/dev/null || true
+
+echo "==> Converting CUPS print daemon to on-demand socket activation..."
+systemctl disable --now cups.service 2>/dev/null || true
+systemctl enable cups.socket 2>/dev/null || true
+
+echo "==> Applying immediate runtime settings..."
+if [[ -f /sys/bus/pci/devices/0000:02:00.0/power/control ]]; then
+    echo "auto" > /sys/bus/pci/devices/0000:02:00.0/power/control || true
+fi
+if [[ -f /sys/module/pcie_aspm/parameters/policy ]]; then
+    echo "powersupersave" > /sys/module/pcie_aspm/parameters/policy || true
+fi
+
+udevadm control --reload-rules
+udevadm trigger --subsystem-match=pci || true
+
+echo "==> Hardware power tuning applied successfully!"
+echo "PCIe ASPM: $(cat /sys/module/pcie_aspm/parameters/policy 2>/dev/null || echo 'N/A')"
+echo "SD Card Reader PM: $(cat /sys/bus/pci/devices/0000:02:00.0/power/control 2>/dev/null || echo 'N/A')"
