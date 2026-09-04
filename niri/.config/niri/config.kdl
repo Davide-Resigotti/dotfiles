@@ -61,15 +61,23 @@ input {
 // Remember to uncomment the node by removing "/-"!
 
 
-// NOTE: monitor layout below is machine-specific. Names/modes come from
-// `niri msg outputs`. Uncomment/adapt on a new machine.
- output "Xiaomi Corporation Mi Monitor 0000000000000" {
-     mode "3440x1440@99.992"
-     scale 0.90
-     variable-refresh-rate
-     focus-at-startup
-     position x=2016 y=0 //x=2016 because of 3024/1.5=2016 according to the specs of the main monitor
- }
+// External Ultrawide Monitor (via USB-C / DisplayPort)
+output "Xiaomi Corporation Mi Monitor 0000000000000" {
+    mode "3440x1440@99.992"
+    scale 0.90
+    variable-refresh-rate
+    focus-at-startup
+    position x=2016 y=0 //x=2016 because of 3024/1.5=2016 according to the specs of the main monitor
+}
+
+// External Ultrawide Monitor (via HDMI)
+output "HDMI-A-1" {
+    mode "3440x1440@99.992"
+    scale 0.90
+    variable-refresh-rate
+    focus-at-startup
+    position x=2016 y=0
+}
 
 // Internal Liquid Retina XDR ProMotion panel:
 // Defaults to 120Hz. power-wallpaper-watcher dynamically switches between
