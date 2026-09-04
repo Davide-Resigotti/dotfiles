@@ -45,6 +45,9 @@ stow -v --restow niri waybar mako fuzzel ghostty fontconfig xsettingsd gtk-3.0 g
 # HA toggles (.desktop Exec uses the bare name; needs ~/.local/bin on PATH)
 ln -sf "$HOME/.config/home-assistant/scripts/ha-toggle" "$HOME/.local/bin/ha-toggle"
 
+# Battery & power optimization reference guide
+ln -sf "$PWD/docs/battery-optimization.md" "$HOME/.config/battery-optimization.md"
+
 # Wallpapers: copied (not symlinked) so ~/Pictures keeps screenshots etc.
 mkdir -p "$HOME/Pictures/Wallpapers"
 cp -rn wallpapers/Pictures/Wallpapers/* "$HOME/Pictures/Wallpapers/" 2>/dev/null || true

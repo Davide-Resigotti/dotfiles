@@ -12,7 +12,7 @@ targets root-owned `/etc/keyd`, so `install.sh` needs sudo for it.)
 | Package      | Symlinks to `$HOME` | Contents |
 |--------------|---------------------|----------|
 | `niri`       | `~/.config/niri`    | `config.kdl` (portable `$HOME` spawn paths), `scripts/` (theme apply + early-dark arming, wallpaper cycling) |
-| `waybar`     | `~/.config/waybar`  | `config.jsonc`, `style.css` |
+| `waybar`     | `~/.config/waybar`  | `config.jsonc`, `style.css`, battery power toggles (`hardware-power-toggle.sh`, `kdeconnect-toggle.sh`) |
 | `mako`       | `~/.config/mako`    | notification daemon |
 | `fuzzel`     | `~/.config/fuzzel`  | launcher used by the clipboard picker |
 | `ghostty`    | `~/.config/ghostty` | terminal config (`config`) |
@@ -23,10 +23,10 @@ targets root-owned `/etc/keyd`, so `install.sh` needs sudo for it.)
 | `xdg-desktop-portal` | `~/.config/xdg-desktop-portal` | XDG desktop portal configuration |
 | `theme`     | `~/.config/theme`, `~/.local/bin/set-accent`, `~/.local/bin/toggle-theme`, `~/.local/share/applications` | Dynamic primary & system color accent dispatcher, Fuzzel theme toggle, and app launcher shortcuts |
 | `home-assistant` | `~/.config/home-assistant/scripts` | `ha-toggle <entity>` — toggles a HA entity via the local REST API (token read from `~/.config/home-assistant/token`) |
-| `autostart`  | `~/.config/autostart` | XWayland video bridge |
-| `shell`      | `~/.bashrc`, `~/.bash_profile`, `~/.profile`, `~/.gitconfig` | exports system color and accent variables, machine-agnostic |
+| `autostart`  | `~/.config/autostart` | XWayland video bridge, daemon autostart overrides (`geoclue`, `kunifiedpush`, `sealertauto`) |
+| `shell`      | `~/.bashrc`, `~/.bash_profile`, `~/.profile`, `~/.gitconfig`, `~/.local/bin/apply-hardware-power-tuning` | exports system color and accent variables, hardware power tuning installer |
 | `wallpapers` | copied to `~/Pictures/Wallpapers` | Wallpapers grouped by color folder (`Orange`, `Blue`, `Purple`) |
-| `waypaper`   | `~/.config/waypaper` | Wallpaper manager config, cycle scripts, and hardware power watcher daemon |
+| `waypaper`   | `~/.config/waypaper`, `~/.local/bin/mpvpaper` | Wallpaper manager config, smart swaybg/mpvpaper dispatcher, cycle scripts, and dynamic power watcher daemon |
 | `firefox`    | `~/.config/mozilla/firefox/*/chrome` | Dynamic vertical tabs theme stylesheet (`userChrome.css`) & Pywalfox integration |
 | `yazi`       | `~/.config/yazi`    | terminal file manager (`yazi.toml`, opener configured for Neovim) |
 | `tmux`       | `~/.tmux.conf`      | terminal multiplexer config (vi keys, wl-copy integration, mouse, true color) |
@@ -92,17 +92,42 @@ Whenever the theme or wallpaper changes, `set-accent <name>` writes:
 - **`~/.config/theme/current-accent.env`**: Sourced in `~/.bashrc` to provide `$PRIMARY_COLOR` and `$SYSTEM_COLOR` variables to all subshells and CLI tools.
 - **`~/.cache/wal/colors.json`**: Provides palette colors for the Pywalfox native messaging bridge.
 
-### 2. Wallpaper & Power-Aware Live Playback
+### 2. Wallpaper & Power-Aware Playback
 
 - Wallpapers in `~/Pictures/Wallpapers/` are grouped into folders by color (`Orange/`, `Blue/`, `Purple/`).
-- Press <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> to cycle wallpapers. `set-wallpaper-accent` automatically detects the parent folder and applies the matching palette.
-- **Power Optimization (`power-wallpaper-watcher`)**:
-  - Automatically runs as a background user service (`waypaper-power-watcher.service`).
-  - Monitors hardware power state via `/sys/class/power_supply/*/online` (respects battery charge limiters like 75%).
-  - **Under AC Power**: Plays full 60fps video wallpapers (`.mp4`) with GPU acceleration (`mpvpaper --hwdec=auto --no-audio`).
-  - **On Battery**: Instantly swaps video wallpapers for their high-resolution 4K static frame (`~/.cache/wallpaper-frames/`) and pauses `mpv`, dropping CPU usage to **0.0%**.
+- Press <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> to cycle wallpapers manually. `set-wallpaper-accent` automatically detects the parent folder and applies the matching palette.
+- **Rotation Interval**:
+  - **On AC Power**: Automatically rotates wallpapers every **60 minutes**.
+  - **On Battery**: Automatic rotation is disabled to save CPU/storage wakeups; manual cycling with <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> remains fully available.
+- **Smart Backend Delegation (`~/.local/bin/mpvpaper`)**:
+  - **On AC Power with Videos**: Plays full 60fps video wallpapers (`.mp4`) with hardware acceleration via `mpvpaper-bin`.
+  - **On Battery OR with Static Photos**: Automatically delegates to `swaybg` (1 thread, ~14 MB RAM, 0% CPU, 0 GPU wakeups). If the active wallpaper is a video, its crisp 4K frame is extracted (`~/.cache/wallpaper-frames/`) and displayed statically.
+- **Dynamic Transition Daemon (`waypaper-power-watcher.service`)**:
+  - Listens to kernel power events via `udevadm monitor -u -s power_supply`.
+  - Smoothly transitions between live 60fps video on AC and static `swaybg` on battery when plugging/unplugging the charger.
 
-### 3. Display & Keyboard Backlight Auto-Sync (`kbd-backlight-watcher`)
+### 3. Power & Battery Optimization Architecture
+
+The system features dynamic power management tailored for Apple Silicon (M2 Pro), documented in detail in [`docs/battery-optimization.md`](docs/battery-optimization.md):
+
+- **Hardware Power Saver (`[ 󰍛 hw off ]` / `[ 󰍛 hw on ]`)**:
+  - An interactive toggle in Waybar appears only when on battery.
+  - Defaults to `[ 󰍛 hw off ]` (power savings active: PCIe ASPM `powersupersave`, SD Card reader idle autosuspend in D3hot/D3cold, TuneD `power-saver` with `vm.laptop_mode=5`).
+  - Clicking the module toggles to `[ 󰍛 hw on ]` (restoring full standard hardware performance).
+  - Toggles are automatically hidden on AC power.
+- **Dynamic KDE Connect (`[ 󰄡 off ]` / `[ 󰄡 on ]`)**:
+  - Automatically disabled on battery to prevent periodic Wi-Fi discovery UDP broadcasts.
+  - Interactive toggle appears in Waybar on battery to enable sync on demand; hidden on AC.
+- **Akonadi & MySQL Power Management**:
+  - Kalendar reminders and the Akonadi MySQL stack (`mysqld`, 13 agents) are stopped automatically on battery, saving **>534 MB RAM** and **108 threads**.
+  - Automatically restarted on AC, or socket-activated on demand if a KDE PIM application is opened.
+- **Waybar Zero-Subshell Efficiency**:
+  - Eliminated custom separator subshell polling scripts (saving ~14,400 process forks/hr).
+- **Session Autostarts & System Daemons**:
+  - Autostart overrides in `autostart/.config/autostart/` suppress unneeded background daemons (`geoclue`, `kunifiedpush`, `sealertauto`) in Niri.
+  - Disabled `ModemManager.service` (no WWAN card on MacBook) and converted CUPS to on-demand `cups.socket`.
+
+### 4. Display & Keyboard Backlight Auto-Sync (`kbd-backlight-watcher`)
 
 - **Proportional Threshold Control**:
   - Managed via user systemd service (`kbd-backlight-watcher.service`) and `~/.config/niri/scripts/backlight.sh`.
@@ -113,7 +138,7 @@ Whenever the theme or wallpaper changes, `set-accent <name>` writes:
   - Display Brightness: <kbd>BrightnessUp</kbd> / <kbd>BrightnessDown</kbd> (F1/F2 or `XF86MonBrightnessUp`/`Down`) steps by 5%.
   - Keyboard Brightness Scale: <kbd>Mod</kbd>+<kbd>BrightnessUp</kbd> / <kbd>Mod</kbd>+<kbd>BrightnessDown</kbd> (or dedicated <kbd>XF86KbdBrightnessUp</kbd>/<kbd>Down</kbd>) fine-tunes the proportionality scale factor.
 
-### 4. Application Synchronizations
+### 5. Application Synchronizations
 
 - **Niri**: Focus ring active border updates in real-time via `~/.config/niri/accent.kdl`.
 - **Waybar**: Imports `colors.css` defining `@define-color accent`. Reloads styles seamlessly without restarting.

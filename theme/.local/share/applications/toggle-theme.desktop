@@ -3,6 +3,6 @@ Name=Theme
 Exec=toggle-theme
 Terminal=false
 Type=Application
-Icon=theme-moon
+Icon=theme-sun
 Categories=Settings;
 Keywords=dark;light;theme;night;
