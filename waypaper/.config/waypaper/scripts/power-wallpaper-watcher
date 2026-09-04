@@ -213,11 +213,11 @@ def sync_refresh_rate(is_ac):
 
 
 def sync_all(is_ac):
+    sync_refresh_rate(is_ac)
     set_power_profile(is_ac)
     sync_kdeconnect(is_ac)
     sync_akonadi(is_ac)
     sync_wallpaper(is_ac)
-    sync_refresh_rate(is_ac)
 
 
 def main():
