@@ -73,11 +73,6 @@ if command -v nvim >/dev/null 2>&1; then
     nvim --headless "+Lazy! sync" +qa || true
 fi
 
-# nvim-wl-anywhere (bind for Super+N in niri)
-if [ ! -d "$HOME/.local/share/nvim-wl-anywhere" ]; then
-    echo "Cloning nvim-wl-anywhere..."
-    git clone --depth=1 https://github.com/abdullah-albanna/nvim-wl-anywhere.git "$HOME/.local/share/nvim-wl-anywhere" || true
-fi
 
 # Waypaper virtualenv helper
 if ! command -v waypaper >/dev/null 2>&1; then
@@ -115,6 +110,7 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload >/dev/null 2>&1 || true
     systemctl --user enable --now waypaper-power-watcher.service >/dev/null 2>&1 || true
     systemctl --user enable --now kbd-backlight-watcher.service >/dev/null 2>&1 || true
+    systemctl --user enable --now swayidle.service >/dev/null 2>&1 || true
 fi
 
 # keyd config and udev rules live in root-owned /etc, so they're copied (needs sudo).

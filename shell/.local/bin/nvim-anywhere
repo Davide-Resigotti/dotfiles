@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# nvim-anywhere: Floating Neovim scratchpad for quick note taking & input
+# Opens a mid-size centered Ghostty window running Neovim.
+#
+# - Saving (:w, :wq, ZZ):
+#   Copies content to clipboard AND automatically pastes into last active window.
+# - Closing without saving (:q, :q!, or closing window):
+#   Copies content to clipboard ONLY (does not paste into last active window).
+# ==============================================================================
+set -euo pipefail
+
+APP_ID="dev.nvim.anywhere"
+
+# Toggle: If an instance is already open, close it cleanly
+EXISTING_PID=$(niri msg windows 2>/dev/null | awk -v app="$APP_ID" '
+    $0 ~ "App ID: \"" app "\"" {found=1}
+    found && /PID:/ {print $2; exit}
+')
+
+if [[ -n "${EXISTING_PID:-}" ]]; then
+    kill "$EXISTING_PID" 2>/dev/null || pkill -f "ghostty.*$APP_ID" || true
+    exit 0
+fi
+
+# Record the previously focused window and its application before opening popup
+PREV_WINDOW_ID=$(niri msg focused-window 2>/dev/null | awk '/Window ID/ {gsub(/:/, "", $3); print $3}' || true)
+PREV_APP_ID=$(niri msg focused-window 2>/dev/null | awk '/App ID:/ {gsub(/"/, "", $3); print $3}' || true)
+
+# Create a secure temporary Markdown file and saved flag marker
+TMPFILE="$(mktemp -t nvim-anywhere-XXXXXX.md)"
+SAVED_FLAG="$TMPFILE.saved"
+trap 'rm -f "$TMPFILE" "$SAVED_FLAG"' EXIT
+
+# Launch Ghostty running Neovim
+# - Uses user native Ghostty styling & palette
+# - Font size set to 11 for compact scratchpad readability
+# - Opens directly in insert mode
+# - If saved (:w / :wq / ZZ), marks SAVED_FLAG and quits
+# - On exit, writes buffer content to TMPFILE so :q also copies to clipboard
+# - Allows :q without ! even when buffer is modified
+ghostty \
+    --class="$APP_ID" \
+    --title="Neovim Anywhere" \
+    --font-size=11 \
+    -e nvim \
+        -c "autocmd BufWritePost <buffer> call writefile([], '$SAVED_FLAG') | quit" \
+        -c "autocmd VimLeavePre * call writefile(getline(1, '$'), '$TMPFILE')" \
+        -c "autocmd VimEnter,UIEnter,BufEnter * ++nested startinsert" \
+        -c "cabbrev <expr> q (getcmdtype() ==# ':' && getcmdline() ==# 'q') ? 'q!' : 'q'" \
+        -c "startinsert" \
+        "$TMPFILE"
+
+# Process buffer content if non-empty (ignoring purely blank buffers)
+if [[ -f "$TMPFILE" ]] && grep -q '[^[:space:]]' "$TMPFILE"; then
+    # Always copy to clipboard (both standard clipboard and primary selection)
+    wl-copy -n < "$TMPFILE"
+    wl-copy --primary -n < "$TMPFILE"
+
+    # Only paste into the previously focused window if explicitly SAVED (:w / :wq)
+    if [[ -f "$SAVED_FLAG" ]]; then
+        # Ensure previous window has focus
+        if [[ -n "${PREV_WINDOW_ID:-}" ]]; then
+            niri msg action focus-window --id "$PREV_WINDOW_ID" 2>/dev/null || true
+        fi
+        sleep 0.25
+
+        # Detect application to send the appropriate paste combination
+        CURRENT_APP=$(niri msg focused-window 2>/dev/null | awk '/App ID:/ {gsub(/"/, "", $3); print $3}' || true)
+        TARGET="${CURRENT_APP:-$PREV_APP_ID}"
+
+        if [[ "$TARGET" =~ (ghostty|kitty|alacritty|foot|wezterm) ]]; then
+            # Terminal paste: Ctrl+Shift+V
+            wtype -M ctrl -M shift -s 40 -k v -s 40 -m shift -m ctrl
+        else
+            # Standard application paste: Ctrl+V
+            wtype -M ctrl -s 40 -k v -s 40 -m ctrl
+        fi
+    fi
+fi

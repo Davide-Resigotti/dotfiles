@@ -20,10 +20,10 @@ MODEL_FILE = os.path.join(STATE_DIR, "brightness_model.json")
 class AdaptiveBrightnessModel:
     # Battery Anchors: Optimized for maximum power conservation (30% at ~485 lux)
     DEFAULT_BATTERY_ANCHORS = [
-        (0.0, 5.0),       # Pitch black
-        (5.0, 10.0),      # Very dark
-        (20.0, 15.0),     # Dim candle / night light
-        (50.0, 20.0),     # Dim indoor
+        (0.0, 2.0),       # Pitch black (comfortable dim minimum ~10 nits)
+        (5.0, 5.0),       # Very dark
+        (20.0, 10.0),     # Dim candle / night light
+        (50.0, 18.0),     # Dim indoor
         (150.0, 22.0),    # Normal indoor
         (485.0, 30.0),    # Baseline room lighting (~485 lux -> 30%)
         (1500.0, 45.0),   # Very bright indoor / sunlit room
@@ -126,7 +126,7 @@ class AdaptiveBrightnessModel:
         profile = profile if profile in self.profiles else "battery"
         p_data = self.profiles[profile]
 
-        target_pct = max(5.0, min(100.0, float(target_pct)))
+        target_pct = max(1.0, min(100.0, float(target_pct)))
         lux = max(0.0, float(lux))
         p_data["observations"].append([round(lux, 1), round(target_pct, 1)])
         if len(p_data["observations"]) > 50:
@@ -146,7 +146,7 @@ class AdaptiveBrightnessModel:
 
             current_val = p_data["anchors"][idx][1]
             new_val = (1.0 - lr) * current_val + lr * target_pct
-            p_data["anchors"][idx][1] = round(max(5.0, min(100.0, new_val)), 2)
+            p_data["anchors"][idx][1] = round(max(1.0, min(100.0, new_val)), 2)
 
         # Enforce strict monotonicity across anchors
         for i in range(1, len(p_data["anchors"])):
@@ -180,7 +180,7 @@ class AdaptiveBrightnessModel:
                 x0, x1 = self._log_x(l0), self._log_x(l1)
                 t = (target_x - x0) / (x1 - x0) if x1 > x0 else 0.0
                 val = v0 + t * (v1 - v0)
-                return max(5.0, min(100.0, val))
+                return max(1.0, min(100.0, val))
 
         return 30.0 if profile == "battery" else 55.0
 

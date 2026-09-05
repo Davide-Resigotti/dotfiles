@@ -88,7 +88,7 @@ flowchart TD
     end
 
     subgraph MLFeedback ["Machine Learning Adaptation"]
-        UserKeys["User presses F1/F2 (5% steps)"] --> Debounce["Debounce 2.5s (Settle Delay)"]
+        UserKeys["User presses F1/F2 (tiered 1%/2%/5%/10% steps)"] --> Debounce["Debounce 2.5s (Settle Delay)"]
         Debounce --> TrainCheck{"Training Window Active?<br/>(Within 7 Days)"}
         TrainCheck -- "Yes (Training Active)" --> Learn["model.learn(lux, pct, profile=active)"]
         TrainCheck -- "No (Training Complete)" --> Lock["Keep curves locked; session hold only"]
@@ -113,10 +113,10 @@ flowchart TD
 
 | Ambient Lux | Environment | Battery Profile Target | AC Power Profile Target |
 | :--- | :--- | :--- | :--- |
-| `0.0 lux` | Pitch black | **5.0%** (25/500) | **10.0%** (50/500) |
-| `5.0 lux` | Very dark room | **10.0%** (50/500) | **15.0%** (75/500) |
-| `20.0 lux` | Candlelight / night light | **15.0%** (75/500) | **25.0%** (125/500) |
-| `50.0 lux` | Dim indoor | **20.0%** (100/500) | **35.0%** (175/500) |
+| `0.0 lux` | Pitch black | **2.0%** (10/500) | **10.0%** (50/500) |
+| `5.0 lux` | Very dark room | **5.0%** (25/500) | **15.0%** (75/500) |
+| `20.0 lux` | Candlelight / night light | **10.0%** (50/500) | **25.0%** (125/500) |
+| `50.0 lux` | Dim indoor | **18.0%** (90/500) | **35.0%** (175/500) |
 | `150.0 lux` | Normal indoor | **22.0%** (110/500) | **45.0%** (225/500) |
 | **`485.0 lux`** | **Baseline room lighting** | **30.0%** (150/500) *(Power Saver)* | **55.0%** (275/500) *(Vibrant Display)* |
 | `1500.0 lux` | Sunlit room / near window | **45.0%** (225/500) | **75.0%** (375/500) |
@@ -136,8 +136,13 @@ flowchart TD
   - Automatically hides (`class: "hidden"`) once training completes, keeping Waybar clean.
   - Clicking the module toggles training mode on/off or resets the training timer.
 
-### C. Gradual Smooth Ramping (0.5% Steps)
-- Stepping smoothly by **0.5%** (2.5 units on 500 max) every **50 ms** (~10%/sec transition speed).
+### C. Tiered Perceptual Stepping & Gradual Smooth Ramping
+- **Tiered Perceptual Manual Stepping**: Screen brightness keys (`F1`/`F2` or `MonBrightnessUp`/`Down`) dynamically scale step sizes based on the current brightness level to match human visual perception:
+  - **< 10%**: **1% steps** (fine, ultra-gentle adjustments in pitch black or dim environments).
+  - **10% – 20%**: **2% steps** (delicate control in low indoor lighting).
+  - **20% – 40%**: **5% steps** (balanced steps in typical indoor lighting).
+  - **40% – 100%**: **10% steps** (rapid scaling for bright daylight and outdoor environments).
+- **Gradual Smooth Ramping (0.5% Steps)**: Stepping smoothly by **0.5%** (2.5 units on 500 max) every **50 ms** (~10%/sec transition speed) during automatic AC/battery profile shifts or ambient transitions.
 - When you plug in or unplug the charger, the screen smoothly transitions between the Battery and AC targets without harsh jumps.
 - Ramping aborts immediately if the user touches manual brightness keys.
 
@@ -207,10 +212,11 @@ To bridge this gap and maximize battery life without sacrificing smoothness, `wa
 - Transitions happen in ~10 milliseconds without screen flashes, tearing, or session restarts.
 
 #### Idle Screen DPMS Blanking (`swayidle`)
-- Automatically spawns `swayidle` at Niri startup to monitor user idle state via Wayland's `ext-idle-notify-v1` protocol.
+- Managed as a systemd user service (`swayidle.service`, part of `graphical-session.target`) to monitor user idle state via Wayland's `ext-idle-notify-v1` protocol.
 - **Timeout**: Powers off all monitors (`niri msg action power-off-monitors`) after **10 minutes (600s)** of inactivity.
 - **Resume**: Restores monitors instantly (`niri msg action power-on-monitors`) upon trackpad touch or keypress.
 - **Inhibition**: Automatically respects Wayland idle inhibitors (e.g. video playback in Firefox or media players will not turn off the screen).
+- **Status Inspection**: Check with `systemctl --user status swayidle.service` or via `system-menu` -> `idle blanking status`.
 
 ---
 
@@ -240,7 +246,7 @@ kbd_max_pct_ac = 75              # Maximum keyboard brightness cap on AC Power (
 
 # Screen Auto-Brightness Settings
 auto_screen = true
-screen_min_pct = 5
+screen_min_pct = 1
 screen_max_pct = 100
 
 # Smooth Gradual Ramping
@@ -273,3 +279,4 @@ poll_interval = 2.5
 | **Adjust Keyboard Delta (+5% / -5%)** | `~/.config/niri/scripts/backlight.sh kbd-up` / `kbd-down` |
 | **Toggle Auto Screen Brightness** | `~/.config/niri/scripts/backlight.sh toggle-auto-screen` |
 | **Check Watcher Service Health** | `systemctl --user status kbd-backlight-watcher.service` |
+| **Check Idle Blanking Service** | `systemctl --user status swayidle.service` |

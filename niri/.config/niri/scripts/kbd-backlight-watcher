@@ -68,7 +68,7 @@ DEFAULT_CONFIG = {
     "kbd_max_pct_ac": 75.0,
     "kbd_max_pct": 50.0,
     "auto_screen": True,
-    "screen_min_pct": 5,
+    "screen_min_pct": 1,
     "screen_max_pct": 100,
     "smooth_ramp": True,
     "ramp_step_pct": 0.5,
@@ -835,7 +835,7 @@ class AmbientBacklightManager:
                 restore_val = round(
                     (self.model.predict(smoothed_lux or 485.0, profile=profile) / 100.0) * disp_max
                 )
-            set_display_brightness(max(10, restore_val))
+            set_display_brightness(max(5, restore_val))
             disp_cur = restore_val
 
         # --- 2. Keyboard Backlight Continuous Flawless Adjustment ---

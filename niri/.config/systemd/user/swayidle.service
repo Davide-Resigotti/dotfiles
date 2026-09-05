@@ -1,0 +1,15 @@
+[Unit]
+Description=Idle Manager for Niri (swayidle)
+Documentation=man:swayidle(1)
+PartOf=graphical-session.target
+After=graphical-session.target
+Requisite=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/swayidle -w timeout 600 "niri msg action power-off-monitors" resume "niri msg action power-on-monitors"
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

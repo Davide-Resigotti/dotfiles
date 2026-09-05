@@ -11,48 +11,48 @@ window {
 #outer-box {
     margin: 5px;
     padding: 14px;
-    background-color: #212634;
-    border: 2px solid #3daee9;
+    background-color: #28201e;
+    border: 2px solid #df6124;
     border-radius: 12px;
 }
 
 #input {
     margin: 4px 4px 14px 4px;
     padding: 10px 14px;
-    border: 1.5px solid #1b1f2b;
+    border: 1.5px solid #201918;
     border-radius: 8px;
     color: #ffffff;
-    background-color: #1b1f2b;
+    background-color: #201918;
     outline: none;
     font-size: 14px;
     font-weight: bold;
 }
 
 #input:focus {
-    border: 1.5px solid #3daee9;
+    border: 1.5px solid #df6124;
 }
 
 #scroll {
     margin: 4px 0px;
     border: none;
-    background-color: #212634;
+    background-color: #28201e;
 }
 
 #inner-box {
-    background-color: #212634;
+    background-color: #28201e;
 }
 
 #entry {
     padding: 8px 12px;
     margin: 2px 0px;
     border-radius: 8px;
-    background-color: #212634;
+    background-color: #28201e;
     border: none;
 }
 
 #entry:selected {
-    background-color: #3daee933;
-    border-left: 4px solid #3daee9;
+    background-color: #df612433;
+    border-left: 4px solid #df6124;
 }
 
 #text {

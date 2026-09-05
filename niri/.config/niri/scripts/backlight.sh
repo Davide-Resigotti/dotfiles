@@ -6,21 +6,65 @@ BL=/sys/class/backlight/apple-panel-bl
 max=$(cat "$BL/max_brightness")
 cur=$(cat "$BL/brightness")
 
-# Step by 5% of max brightness (e.g. 25 units for max 500)
-step=$((max / 20))
-[ "$step" -lt 1 ] && step=1
+# Minimum active brightness (1% of max, e.g. 5 units for max 500)
+min_val=$(( max / 100 ))
+[ "$min_val" -lt 1 ] && min_val=1
+
+# Thresholds for tiered perceptual stepping (10%, 20%, 40%)
+th10=$(( max * 10 / 100 ))
+th20=$(( max * 20 / 100 ))
+th40=$(( max * 40 / 100 ))
+
+# Step sizes: 1%, 2%, 5%, 10%
+step1=$(( max / 100 ))
+[ "$step1" -lt 1 ] && step1=1
+step2=$(( max * 2 / 100 ))
+[ "$step2" -lt 1 ] && step2=1
+step5=$(( max * 5 / 100 ))
+[ "$step5" -lt 1 ] && step5=1
+step10=$(( max * 10 / 100 ))
+[ "$step10" -lt 1 ] && step10=1
 
 case "${1:-}" in
     up)
-        val=$(( ((cur + step) / step) * step ))
+        # Tiered perceptual stepping:
+        # < 10%   -> 1% step for dim environments
+        # 10-20%  -> 2% step
+        # 20-40%  -> 5% step
+        # 40-100% -> 10% step for bright outdoors
+        if [ "$cur" -lt "$th10" ]; then
+            step=$step1
+        elif [ "$cur" -lt "$th20" ]; then
+            step=$step2
+        elif [ "$cur" -lt "$th40" ]; then
+            step=$step5
+        else
+            step=$step10
+        fi
+        val=$(( cur + step ))
+        [ "$val" -lt "$min_val" ] && val=$min_val
         [ "$val" -gt "$max" ] && val=$max
         [ "$val" -ne "$cur" ] && printf '%s\n' "$val" > "$BL/brightness"
         # Notify ML adaptive watcher of manual adjustment
         "$DIR/kbd-backlight-watcher" --manual-adjust "$val" >/dev/null 2>&1 || true
         ;;
     down)
-        val=$(( ((cur - 1) / step) * step ))
-        [ "$val" -lt 1 ] && val=1
+        # Tiered perceptual stepping downwards:
+        # <= 10%  -> 1% step
+        # <= 20%  -> 2% step
+        # <= 40%  -> 5% step
+        # > 40%   -> 10% step
+        if [ "$cur" -le "$th10" ]; then
+            step=$step1
+        elif [ "$cur" -le "$th20" ]; then
+            step=$step2
+        elif [ "$cur" -le "$th40" ]; then
+            step=$step5
+        else
+            step=$step10
+        fi
+        val=$(( cur - step ))
+        [ "$val" -lt "$min_val" ] && val=$min_val
         [ "$val" -ne "$cur" ] && printf '%s\n' "$val" > "$BL/brightness"
         # Notify ML adaptive watcher of manual adjustment
         "$DIR/kbd-backlight-watcher" --manual-adjust "$val" >/dev/null 2>&1 || true
@@ -106,7 +150,7 @@ except Exception:
         "$DIR/kbd-backlight-watcher" --lid-open >/dev/null 2>&1 || {
             if [ -f "$SAVED_FILE" ]; then
                 saved=$(cat "$SAVED_FILE" 2>/dev/null || echo 150)
-                [ "$saved" -lt 10 ] && saved=150
+                [ "$saved" -lt "$min_val" ] && saved=150
                 printf '%s\n' "$saved" > "$BL/brightness"
             else
                 printf '150\n' > "$BL/brightness"

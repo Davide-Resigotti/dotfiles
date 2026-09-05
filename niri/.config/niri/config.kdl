@@ -258,8 +258,9 @@ include optional=true "accent.kdl"
 spawn-sh-at-startup "sleep 1 && $HOME/.config/waypaper/scripts/waypaper-rotate &"
 spawn-at-startup "niri-copy-paste daemon"
 
-// Automatically power off monitors when idle for 10 minutes (600s), restore on user input
-spawn-at-startup "swayidle" "-w" "timeout" "600" "niri msg action power-off-monitors" "resume" "niri msg action power-on-monitors"
+// Swayidle is managed by the systemd user service (swayidle.service).
+// Keep this disabled to avoid starting a second instance.
+// spawn-at-startup "swayidle" "-w" "timeout" "600" "niri msg action power-off-monitors" "resume" "niri msg action power-on-monitors"
 
 // Waybar is managed by the systemd user service (waybar.service).
 // Keep this disabled to avoid starting a second instance.
@@ -314,12 +315,12 @@ window-rule {
     open-floating true
 }
 
-// nvim-wl-anywhere: open as floating popup, always centered
+// nvim-anywhere: open as floating popup, centered
 window-rule {
-    match app-id=r#"^nvim-wl-anywhere$"#
+    match app-id=r#"^(dev\.nvim\.anywhere|nvim-anywhere)$"#
     open-floating true
-    default-column-width { proportion 0.5; }
-    default-window-height { proportion 0.5; }
+    default-column-width { proportion 0.55; }
+    default-window-height { proportion 0.55; }
 }
 
 // System details popup terminal
@@ -386,7 +387,7 @@ binds {
 
     Super+Space hotkey-overlay-title="Run an Application: fuzzel" { spawn "fuzzel"; }
 
-    Super+N hotkey-overlay-title="Neovim Anywhere" { spawn-sh "$HOME/.local/share/nvim-wl-anywhere/nvim-wl-anywhere.sh"; }
+    Mod+N hotkey-overlay-title="Neovim Anywhere" { spawn "nvim-anywhere"; }
     Super+Alt+L hotkey-overlay-title="Lock the Screen: swaylock" { spawn "swaylock"; }
 
     Mod+T hotkey-overlay-title="Screenshot: Partial" { screenshot; }
